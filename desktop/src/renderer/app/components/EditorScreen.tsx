@@ -129,42 +129,44 @@ const TOKEN_COLORS: Record<string, string> = {
   newline: "#3C2A18",
 };
 
-function tokenizeLatex(code: string): Token[] {
-  const tokens: Token[] = [];
-  for (const line of code.split("\n")) {
+function tokenizeLatex(code: string): Token[][] {
+  const lines: Token[][] = [];
+  const rawLines = code.split("\n");
+  for (const lineText of rawLines) {
+    const tokens: Token[] = [];
     let i = 0;
-    while (i < line.length) {
-      if (line[i] === "%") {
-        tokens.push({ type: "comment", value: line.slice(i) });
-        i = line.length;
+    while (i < lineText.length) {
+      if (lineText[i] === "%") {
+        tokens.push({ type: "comment", value: lineText.slice(i) });
+        i = lineText.length;
         continue;
       }
-      if (line[i] === "\\") {
+      if (lineText[i] === "\\") {
         let j = i + 1;
-        while (j < line.length && /[a-zA-Z]/.test(line[j])) j++;
-        if (j === i + 1 && j < line.length) j++;
-        tokens.push({ type: "command", value: line.slice(i, j) });
+        while (j < lineText.length && /[a-zA-Z]/.test(lineText[j])) j++;
+        if (j === i + 1 && j < lineText.length) j++;
+        tokens.push({ type: "command", value: lineText.slice(i, j) });
         i = j;
         continue;
       }
-      if (line[i] === "$") {
+      if (lineText[i] === "$") {
         let j = i + 1;
-        const end = line.indexOf("$", j);
-        j = end > -1 ? end + 1 : line.length;
-        tokens.push({ type: "math", value: line.slice(i, j) });
+        const end = lineText.indexOf("$", j);
+        j = end > -1 ? end + 1 : lineText.length;
+        tokens.push({ type: "math", value: lineText.slice(i, j) });
         i = j;
         continue;
       }
-      if (/[{}]/.test(line[i])) { tokens.push({ type: "brace", value: line[i] }); i++; continue; }
-      if (/[\[\]]/.test(line[i])) { tokens.push({ type: "bracket", value: line[i] }); i++; continue; }
+      if (/[{}]/.test(lineText[i])) { tokens.push({ type: "brace", value: lineText[i] }); i++; continue; }
+      if (/[\[\]]/.test(lineText[i])) { tokens.push({ type: "bracket", value: lineText[i] }); i++; continue; }
       let j = i;
-      while (j < line.length && !"%\\${}[]".includes(line[j])) j++;
-      tokens.push({ type: "text", value: line.slice(i, j) });
+      while (j < lineText.length && !"%\\${}[]".includes(lineText[j])) j++;
+      tokens.push({ type: "text", value: lineText.slice(i, j) });
       i = j;
     }
-    tokens.push({ type: "newline", value: "\n" });
+    lines.push(tokens);
   }
-  return tokens;
+  return lines;
 }
 
 /* ─────────── File tree data ─────────── */
@@ -494,8 +496,7 @@ export function EditorScreen() {
     }
   };
 
-  const lines = code.split("\n");
-  const tokens = tokenizeLatex(code);
+  const linesOfTokens = tokenizeLatex(code);
 
   const handleCompile = async () => {
     if (!activeTabPath) {
@@ -547,7 +548,7 @@ export function EditorScreen() {
       };
     });
 
-    setUploadedFiles(prev => [...prev, ...newUploads]);
+    setUploadedFiles(newUploads);
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
@@ -595,7 +596,7 @@ export function EditorScreen() {
         setUploadedFiles(prev => prev.map(u => u.id === uploadState.id ? { ...u, status: "success", name: newFileName } : u));
 
         // Refresh root folder efficiently (if inside a subdirectory we'd need to expand, but for now root refresh is enough)
-        if (currentDir) handleOpenFolder();
+        if (currentDir) refreshWorkspace();
 
       } catch (err: any) {
         setUploadedFiles(prev => prev.map(u => u.id === uploadState.id ? { ...u, status: "error", error: err.message || String(err) } : u));
@@ -1447,100 +1448,96 @@ export function EditorScreen() {
                 />
               </div>
             ) : (
-              <>
-                {/* Line numbers */}
-                <div
-                  ref={lineNumbersRef}
-                  className="shrink-0 text-right pr-4 pt-4 pb-4 select-none overflow-hidden"
+              <div
+                ref={editorContainerRef}
+                className="flex-1 relative overflow-hidden"
+              >
+                {/* Syntax-highlighted background layer */}
+                <pre
+                  aria-hidden="true"
                   style={{
-                    width: "48px",
-                    color: "#D4C8B0",
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    padding: "16px 0 16px 52px",
                     fontSize: "12px",
                     fontFamily: MONO,
                     lineHeight: "1.65",
-                    background: "#FAF6F0",
-                    borderRight: "1px solid #EDE5D8",
+                    margin: 0,
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                    overflowWrap: "anywhere",
+                    color: "#3C2A18",
+                    overflow: "hidden",
+                    pointerEvents: "none",
+                    boxSizing: "border-box",
                   }}
                 >
-                  {lines.map((_, i) => (
-                    <div key={i}>{i + 1}</div>
-                  ))}
-                </div>
-
-                {/* Editor area: syntax highlight layer + transparent textarea on top */}
-                <div
-                  ref={editorContainerRef}
-                  className="flex-1 relative overflow-hidden"
-                >
-                  {/* Syntax-highlighted background layer */}
-                  <pre
-                    aria-hidden="true"
-                    style={{
-                      position: "absolute",
-                      top: 0,
-                      left: 0,
-                      right: 0,
-                      bottom: 0,
-                      padding: "16px 0 16px 20px",
-                      fontSize: "12px",
-                      fontFamily: MONO,
-                      lineHeight: "1.65",
-                      margin: 0,
-                      whiteSpace: "pre",
-                      color: "#3C2A18",
-                      overflow: "auto",
-                      pointerEvents: "none",
-                    }}
-                  >
-                    {tokens.map((token, i) =>
-                      token.type === "newline" ? (
-                        <br key={i} />
-                      ) : (
+                  {linesOfTokens.map((lineTokens, lineIdx) => (
+                    <div key={lineIdx} style={{ position: "relative", minHeight: "1.65em" }}>
+                      {/* Integrated Line Number */}
+                      <span
+                        style={{
+                          position: "absolute",
+                          left: "-52px",
+                          width: "44px",
+                          textAlign: "right",
+                          color: "#D4C8B0",
+                          userSelect: "none",
+                        }}
+                      >
+                        {lineIdx + 1}
+                      </span>
+                      {lineTokens.length === 0 ? "\u200B" : lineTokens.map((token, i) => (
                         <span key={i} style={{ color: TOKEN_COLORS[token.type] }}>
                           {token.value}
                         </span>
-                      )
-                    )}
-                    {/* Extra newline so textarea and pre match in height */}
-                    {"\n"}
-                  </pre>
+                      ))}
+                    </div>
+                  ))}
+                </pre>
 
-                  {/* Editable textarea overlay */}
-                  <textarea
-                    ref={textareaRef}
-                    value={code}
-                    onChange={(e) => {
-                      setCode(e.target.value);
-                      if (activeTabPath) {
-                        setOpenTabs(tabs => tabs.map(t => t.path === activeTabPath ? { ...t, modified: true } : t));
-                      }
-                    }}
-                    onScroll={handleEditorScroll}
-                    spellCheck={false}
-                    autoCapitalize="off"
-                    autoCorrect="off"
-                    style={{
-                      position: "absolute",
-                      top: 0,
-                      left: 0,
-                      width: "100%",
-                      height: "100%",
-                      padding: "16px 0 16px 20px",
-                      fontSize: "12px",
-                      fontFamily: MONO,
-                      lineHeight: "1.65",
-                      margin: 0,
-                      border: "none",
-                      outline: "none",
-                      resize: "none",
-                      background: "transparent",
-                      color: "transparent",
-                      caretColor: "#C8532A",
-                      whiteSpace: "pre",
-                    }}
-                  />
-                </div>
-              </>
+                {/* Editable textarea overlay */}
+                <textarea
+                  ref={textareaRef}
+                  value={code}
+                  onChange={(e) => {
+                    setCode(e.target.value);
+                    if (activeTabPath) {
+                      setOpenTabs(tabs => tabs.map(t => t.path === activeTabPath ? { ...t, modified: true } : t));
+                    }
+                  }}
+                  onScroll={handleEditorScroll}
+                  spellCheck={false}
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    height: "100%",
+                    padding: "16px 0 16px 52px",
+                    fontSize: "12px",
+                    fontFamily: MONO,
+                    lineHeight: "1.65",
+                    margin: 0,
+                    border: "none",
+                    outline: "none",
+                    resize: "none",
+                    background: "transparent",
+                    color: "transparent",
+                    caretColor: "#C8532A",
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                    overflowWrap: "anywhere",
+                    boxSizing: "border-box",
+                    overflowY: "auto",
+                  }}
+                />
+              </div>
             )}
           </div>
 
