@@ -10,15 +10,15 @@ contextBridge.exposeInMainWorld('api', {
     createItem: (dirPath: string, name: string, isDir: boolean) => ipcRenderer.invoke('create-item', dirPath, name, isDir),
     renameItem: (oldPath: string, newName: string) => ipcRenderer.invoke("rename-item", oldPath, newName),
     deleteItem: (itemPath: string) => ipcRenderer.invoke("delete-item", itemPath),
-    openAskBox: (currentCode: string) => ipcRenderer.invoke('open-ask-box', currentCode),
+    openAskBox: (currentCode: string, initialPrompt?: string) => ipcRenderer.invoke('open-ask-box', currentCode, initialPrompt),
     askGeminiEdit: (payload: { prompt: string, content: string }) => ipcRenderer.invoke('ask-gemini-edit', payload),
     sendProposal: (newCode: string) => ipcRenderer.invoke('send-proposal', newCode),
     getDeepgramKey: () => ipcRenderer.invoke('get-deepgram-key'),
     getEditorCode: () => ipcRenderer.invoke('get-editor-code'),
     imageToLatex: (payload: { imageBase64: string, mimeType: string, fileName: string }) => ipcRenderer.invoke('image-to-latex', payload),
-    onInitAskBox: (callback: (code: string) => void) => {
+    onInitAskBox: (callback: (code: string, initialPrompt?: string) => void) => {
         ipcRenderer.removeAllListeners('init-ask-box');
-        ipcRenderer.on('init-ask-box', (_event, code) => callback(code));
+        ipcRenderer.on('init-ask-box', (_event, code, initialPrompt) => callback(code, initialPrompt));
     },
     onProposalReceived: (callback: (newCode: string) => void) => {
         ipcRenderer.removeAllListeners('proposal-received');

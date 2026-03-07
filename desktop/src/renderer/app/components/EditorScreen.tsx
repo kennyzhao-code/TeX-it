@@ -14,10 +14,10 @@ declare global {
       createItem: (dirPath: string, name: string, isDir: boolean) => Promise<{ success?: boolean; path?: string; error?: string }>;
       renameItem: (oldPath: string, newName: string) => Promise<{ success?: boolean; newPath?: string; error?: string }>;
       deleteItem: (itemPath: string) => Promise<{ success?: boolean; error?: string }>;
-      openAskBox: (code: string) => Promise<void>;
+      openAskBox: (code: string, initialPrompt?: string) => Promise<void>;
       askGeminiEdit: (payload: { prompt: string, content: string }) => Promise<{ content?: string; error?: string }>;
       sendProposal: (newCode: string) => Promise<{ success: boolean }>;
-      onInitAskBox: (cb: (code: string) => void) => void;
+      onInitAskBox: (cb: (code: string, initialPrompt?: string) => void) => void;
       onProposalReceived: (cb: (code: string) => void) => void;
       getDeepgramKey: () => Promise<{ key?: string; error?: string }>;
       getEditorCode: () => Promise<{ code?: string }>;
@@ -1410,6 +1410,7 @@ export function EditorScreen() {
                     color: "#3C2A18",
                     overflow: "hidden",
                     pointerEvents: "none",
+                    zIndex: 3,
                     boxSizing: "border-box",
                   }}
                 >
@@ -1422,7 +1423,7 @@ export function EditorScreen() {
                         minHeight: "1.65em",
                         background: hasError ? "rgba(220, 38, 38, 0.06)" : undefined,
                       }}>
-                        {/* Line number + error dot */}
+                        {/* Line number + error dot + Fix button */}
                         <span
                           style={{
                             position: "absolute",
@@ -1447,6 +1448,60 @@ export function EditorScreen() {
                           )}
                           {lineIdx + 1}
                         </span>
+                        {/* Fix button — inside the pre so it scrolls with content */}
+                        {hasError && (
+                          <button
+                            onClick={() => {
+                              if (!window.api) return;
+                              const errorMsg = lineDiags.map(d => d.message).join("; ");
+                              const lineContent = lineTokens.map(t => t.value).join("");
+                              const prompt = `There's an error on line ${lineIdx + 1}: "${errorMsg}". The line reads: \`${lineContent.trim()}\`. Can you fix it?`;
+                              window.api.openAskBox(code, prompt);
+                            }}
+                            style={{
+                              position: "absolute",
+                              right: "8px",
+                              top: "50%",
+                              transform: "translateY(-50%)",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "3px",
+                              padding: "1px 7px",
+                              borderRadius: "6px",
+                              border: "1px solid #E0D5C5",
+                              background: "#F5EDE3",
+                              color: "#B5A08A",
+                              fontSize: "9px",
+                              fontFamily: FONT,
+                              fontWeight: 500,
+                              cursor: "pointer",
+                              letterSpacing: "0.02em",
+                              pointerEvents: "all",
+                              opacity: 0.25,
+                              transition: "background 0.15s, color 0.15s, border-color 0.15s, opacity 0.15s",
+                              whiteSpace: "nowrap",
+                              lineHeight: "normal",
+                            }}
+                            onMouseEnter={e => {
+                              const el = e.currentTarget as HTMLElement;
+                              el.style.opacity = "1";
+                              el.style.background = "#FAE5D8";
+                              el.style.color = "#C8532A";
+                              el.style.borderColor = "#F0C9B4";
+                            }}
+                            onMouseLeave={e => {
+                              const el = e.currentTarget as HTMLElement;
+                              el.style.opacity = "0.25";
+                              el.style.background = "#F5EDE3";
+                              el.style.color = "#B5A08A";
+                              el.style.borderColor = "#E0D5C5";
+                            }}
+                          >
+                            <Sparkles style={{ width: "8px", height: "8px" }} />
+                            Fix
+                          </button>
+                        )}
+
                         {/* Render tokens with error underlines */}
                         {lineTokens.length === 0 ? "\u200B" : (() => {
                           // Build a flat text to map column positions
@@ -1607,8 +1662,11 @@ export function EditorScreen() {
                       onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
                       onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.9")}
                       onClick={() => {
-                        // Stub — no implementation yet
-                        toast.info("Fix with Gemini coming soon!");
+                        if (!window.api || !hoveredDiag) return;
+                        const { diag } = hoveredDiag;
+                        const lineContent = linesOfTokens[diag.line]?.map(t => t.value).join("") ?? "";
+                        const prompt = `There's an error on line ${diag.line + 1}: "${diag.message}". The line reads: \`${lineContent.trim()}\`. Can you fix it?`;
+                        window.api.openAskBox(code, prompt);
                         setHoveredDiag(null);
                       }}
                     >
@@ -1660,6 +1718,8 @@ export function EditorScreen() {
                     overflowY: "auto",
                   }}
                 />
+
+
 
                 {/* Empty-state logo overlay — shown when no file is open */}
                 {!activeTabPath && (

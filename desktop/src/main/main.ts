@@ -8,6 +8,7 @@ let mainWindow: BrowserWindow | null = null;
 let askBoxWindow: BrowserWindow | null = null;
 let goProcess: ChildProcess | null = null;
 let lastEditorCode: string = ""; // stores current editor code for AskBox to pull
+let lastInitialPrompt: string = ""; // stores optional pre-filled prompt for Fix button
 
 function createWindow() {
     mainWindow = new BrowserWindow({
@@ -102,12 +103,13 @@ app.whenReady().then(() => {
         });
     });
 
-    ipcMain.handle('open-ask-box', async (event, currentCode) => {
+    ipcMain.handle('open-ask-box', async (event, currentCode, initialPrompt?: string) => {
         lastEditorCode = currentCode || "";
+        lastInitialPrompt = initialPrompt || "";
 
         if (askBoxWindow) {
             askBoxWindow.focus();
-            askBoxWindow.webContents.send('init-ask-box', currentCode);
+            askBoxWindow.webContents.send('init-ask-box', currentCode, lastInitialPrompt);
             return;
         }
 
@@ -125,7 +127,7 @@ app.whenReady().then(() => {
         askBoxWindow.loadURL('http://localhost:5173/ask-box');
 
         askBoxWindow.webContents.once('did-finish-load', () => {
-            askBoxWindow!.webContents.send('init-ask-box', currentCode);
+            askBoxWindow!.webContents.send('init-ask-box', currentCode, lastInitialPrompt);
         });
 
         askBoxWindow.on('closed', () => {

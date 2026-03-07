@@ -25,8 +25,12 @@ export function AskBoxScreen() {
                 if (result.code) setCurrentCode(result.code);
             });
             // Also listen for live updates if the user switches files while the box is open
-            window.api.onInitAskBox((code: string) => {
+            window.api.onInitAskBox((code: string, initialPrompt?: string) => {
                 setCurrentCode(code);
+                if (initialPrompt) {
+                    setPrompt(initialPrompt);
+                    stableTextRef.current = initialPrompt;
+                }
             });
         }
     }, []);
