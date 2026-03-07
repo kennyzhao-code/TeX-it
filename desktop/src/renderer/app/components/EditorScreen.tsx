@@ -18,6 +18,8 @@ declare global {
       onInitAskBox: (cb: (code: string) => void) => void;
       onProposalReceived: (cb: (code: string) => void) => void;
       getDeepgramKey: () => Promise<{ key?: string; error?: string }>;
+      getEditorCode: () => Promise<{ code?: string }>;
+      imageToLatex: (payload: { imageBase64: string, mimeType: string, fileName: string }) => Promise<{ content?: string; error?: string }>;
     };
   }
 }
@@ -51,6 +53,7 @@ import {
   Trash2,
   Edit2,
   Check,
+  Loader2
 } from "lucide-react";
 
 import ReactDiffViewer, { DiffMethod } from "react-diff-viewer-continued";
@@ -170,6 +173,16 @@ type FileEntry = {
   path: string;
 };
 
+type UploadStatus = "uploading" | "success" | "error";
+
+type UploadedFile = {
+  id: string;
+  name: string;
+  isImage: boolean;
+  status: UploadStatus;
+  error?: string;
+};
+
 /* ─────────── Assets data ─────────── */
 const assetFiles: { name: string; type: string }[] = [
   { name: "diagram_01.png", type: "image" },
@@ -248,7 +261,7 @@ export function EditorScreen() {
   const [compiled, setCompiled] = useState(true);
   const [sidebarTab, setSidebarTab] = useState<"files" | "vcs">("files");
   const [dragOver, setDragOver] = useState(false);
-  const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleOpenFolder = async () => {
@@ -477,11 +490,81 @@ export function EditorScreen() {
     }
   };
 
+  const handleFileUploads = async (files: File[]) => {
+    if (!files.length) return;
+
+    // Add dummy entries so UI updates immediately
+    const newUploads = files.map(file => {
+      const isImage = file.type.startsWith("image/");
+      return {
+        id: Math.random().toString(36).substring(7),
+        name: file.name,
+        isImage,
+        status: (isImage ? "uploading" : "success") as UploadStatus
+      };
+    });
+
+    setUploadedFiles(prev => [...prev, ...newUploads]);
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const uploadState = newUploads[i];
+
+      if (!uploadState.isImage) continue;
+
+      try {
+        if (!window.api || !currentDir) {
+          throw new Error("Cannot process image: No folder opened or API unavailable.");
+        }
+
+        // Convert to base64
+        const fileToBase64 = (f: File): Promise<string> => new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(f);
+        });
+
+        const dataUrl = await fileToBase64(file);
+        const base64Str = dataUrl.split(",")[1];
+
+        // Process with Gemini
+        const result = await window.api.imageToLatex({
+          imageBase64: base64Str,
+          mimeType: file.type,
+          fileName: file.name
+        });
+
+        if (result.error) throw new Error(result.error);
+        if (!result.content) throw new Error("No LaTeX content returned");
+
+        // Save as new .tex file
+        const newFileName = file.name.split('.')[0] + '.tex';
+        const createRes = await window.api.createItem(currentDir, newFileName, false);
+
+        if (createRes.error) throw new Error("Failed to create file: " + createRes.error);
+        if (!createRes.path) throw new Error("Creation returned no path.");
+
+        const saveRes = await window.api.saveFile(createRes.path, result.content);
+        if (saveRes.error) throw new Error("Failed to save content: " + saveRes.error);
+
+        // Update successful status
+        setUploadedFiles(prev => prev.map(u => u.id === uploadState.id ? { ...u, status: "success", name: newFileName } : u));
+
+        // Refresh root folder efficiently (if inside a subdirectory we'd need to expand, but for now root refresh is enough)
+        if (currentDir) handleOpenFolder();
+
+      } catch (err: any) {
+        setUploadedFiles(prev => prev.map(u => u.id === uploadState.id ? { ...u, status: "error", error: err.message || String(err) } : u));
+      }
+    }
+  };
+
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(false);
     const files = Array.from(e.dataTransfer.files);
-    if (files.length) setUploadedFiles((p) => [...p, ...files.map((f) => f.name)]);
+    handleFileUploads(files);
   };
 
   return (
@@ -939,20 +1022,43 @@ export function EditorScreen() {
                     className="hidden"
                     onChange={(e) => {
                       const files = Array.from(e.target.files || []);
-                      if (files.length) setUploadedFiles((p) => [...p, ...files.map((f) => f.name)]);
+                      handleFileUploads(files);
+                      // Reset input so the same file can be uploaded again
+                      if (fileInputRef.current) fileInputRef.current.value = "";
                     }}
                   />
                 </div>
                 {uploadedFiles.length > 0 && (
                   <div className="mt-1.5 flex flex-col gap-1">
-                    {uploadedFiles.map((name, i) => (
+                    {uploadedFiles.map((uf) => (
                       <div
-                        key={i}
-                        className="flex items-center gap-2 px-2 py-1 rounded-xl"
-                        style={{ background: "#DDF2E8", border: "1px solid #BDE5CF" }}
+                        key={uf.id}
+                        className="flex flex-col gap-1 px-2 py-1.5 rounded-xl"
+                        style={{
+                          background: uf.status === "error" ? "#FEF2F2" : (uf.status === "uploading" ? "#F5EDE3" : "#DDF2E8"),
+                          border: `1px solid ${uf.status === "error" ? "#FCA5A5" : (uf.status === "uploading" ? "#E4D9CC" : "#BDE5CF")}`
+                        }}
                       >
-                        <CheckCircle style={{ width: "10px", height: "10px", color: "#3D9A6A" }} />
-                        <span style={{ fontSize: "10px", fontFamily: MONO, color: "#2E7D52" }}>{name}</span>
+                        <div className="flex items-center gap-2">
+                          {uf.status === "success" && <CheckCircle style={{ width: "10px", height: "10px", color: "#3D9A6A" }} />}
+                          {uf.status === "uploading" && <Loader2 className="animate-spin" style={{ width: "10px", height: "10px", color: "#A08870" }} />}
+                          {uf.status === "error" && <AlertTriangle style={{ width: "10px", height: "10px", color: "#EF4444" }} />}
+                          <span style={{
+                            fontSize: "10px",
+                            fontFamily: MONO,
+                            color: uf.status === "error" ? "#991B1B" : (uf.status === "uploading" ? "#7A6858" : "#2E7D52"),
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis"
+                          }}>
+                            {uf.name}
+                          </span>
+                        </div>
+                        {uf.error && (
+                          <span style={{ fontSize: "9px", fontFamily: FONT, color: "#DC2626", marginLeft: "18px", lineHeight: 1.2 }}>
+                            {uf.error}
+                          </span>
+                        )}
                       </div>
                     ))}
                   </div>

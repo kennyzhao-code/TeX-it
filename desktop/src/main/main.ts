@@ -7,6 +7,7 @@ const latex = require('node-latex');
 let mainWindow: BrowserWindow | null = null;
 let askBoxWindow: BrowserWindow | null = null;
 let goProcess: ChildProcess | null = null;
+let lastEditorCode: string = ""; // stores current editor code for AskBox to pull
 
 function createWindow() {
     mainWindow = new BrowserWindow({
@@ -45,13 +46,13 @@ app.whenReady().then(() => {
                     resolve({ error: `File not found: ${filePath}` });
                     return;
                 }
-                
+
                 const dirPath = path.dirname(filePath);
                 const fileName = path.basename(filePath);
-                
+
                 // Use a temporary directory for build artifacts to avoid polluting the workspace
                 const tempDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'ltexch-'));
-                
+
                 // Combine TEXINPUTS with the document directory so includes work
                 const env = Object.assign({}, process.env, {
                     TEXINPUTS: `${dirPath}:${process.env.TEXINPUTS || ''}`
@@ -66,11 +67,11 @@ app.whenReady().then(() => {
                 ], { cwd: dirPath, env });
 
                 let errorLog = '';
-                
+
                 texProcess.stdout.on('data', (data) => {
                     errorLog += data.toString();
                 });
-                
+
                 texProcess.stderr.on('data', (data) => {
                     errorLog += data.toString();
                 });
@@ -102,6 +103,8 @@ app.whenReady().then(() => {
     });
 
     ipcMain.handle('open-ask-box', async (event, currentCode) => {
+        lastEditorCode = currentCode || "";
+
         if (askBoxWindow) {
             askBoxWindow.focus();
             askBoxWindow.webContents.send('init-ask-box', currentCode);
@@ -130,9 +133,28 @@ app.whenReady().then(() => {
         });
     });
 
+    // Pull-based: AskBox renderer requests the current code instead of relying on a push event
+    ipcMain.handle('get-editor-code', async () => {
+        return { code: lastEditorCode };
+    });
+
     ipcMain.handle('ask-gemini-edit', async (event, payload: { prompt: string, content: string }) => {
         try {
             const response = await fetch('http://localhost:8080/api/ai/edit', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await response.json();
+            return data;
+        } catch (err: any) {
+            return { error: err.message };
+        }
+    });
+
+    ipcMain.handle('image-to-latex', async (event, payload: { imageBase64: string, mimeType: string, fileName: string }) => {
+        try {
+            const response = await fetch('http://localhost:8080/api/ai/image-to-latex', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)

@@ -20,6 +20,11 @@ export function AskBoxScreen() {
 
     useEffect(() => {
         if (window.api) {
+            // Pull the current code immediately on mount
+            window.api.getEditorCode().then((result: { code?: string }) => {
+                if (result.code) setCurrentCode(result.code);
+            });
+            // Also listen for live updates if the user switches files while the box is open
             window.api.onInitAskBox((code: string) => {
                 setCurrentCode(code);
             });
@@ -151,7 +156,12 @@ export function AskBoxScreen() {
         const finalPrompt = displayedPrompt.trim();
         if (isRecording) stopRecording();
 
-        if (!finalPrompt || !currentCode || !window.api) return;
+        if (!finalPrompt || !window.api) return;
+
+        if (!currentCode) {
+            setError("No file is open in the editor. Please open a .tex file and try again.");
+            return;
+        }
 
         setPrompt(finalPrompt);
         setLoading(true);

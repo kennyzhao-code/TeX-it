@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld('api', {
     askGeminiEdit: (payload: { prompt: string, content: string }) => ipcRenderer.invoke('ask-gemini-edit', payload),
     sendProposal: (newCode: string) => ipcRenderer.invoke('send-proposal', newCode),
     getDeepgramKey: () => ipcRenderer.invoke('get-deepgram-key'),
+    getEditorCode: () => ipcRenderer.invoke('get-editor-code'),
+    imageToLatex: (payload: { imageBase64: string, mimeType: string, fileName: string }) => ipcRenderer.invoke('image-to-latex', payload),
     onInitAskBox: (callback: (code: string) => void) => {
         ipcRenderer.removeAllListeners('init-ask-box');
         ipcRenderer.on('init-ask-box', (_event, code) => callback(code));
