@@ -219,6 +219,38 @@ app.whenReady().then(() => {
         }
     });
 
+    ipcMain.handle('create-project-folder', async () => {
+        if (!mainWindow) return { error: 'No main window' };
+
+        const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+            title: 'Create New Project Folder',
+            buttonLabel: 'Create',
+            nameFieldLabel: 'Folder Name:',
+            showsTagField: false,
+        });
+
+        if (canceled || !filePath) return { canceled: true };
+
+        try {
+            if (!fs.existsSync(filePath)) {
+                fs.mkdirSync(filePath, { recursive: true });
+            }
+            const items = fs.readdirSync(filePath, { withFileTypes: true });
+            const files = items.map(item => ({
+                name: item.name,
+                isDir: item.isDirectory(),
+                path: path.join(filePath, item.name)
+            })).sort((a, b) => {
+                if (a.isDir && !b.isDir) return -1;
+                if (!a.isDir && b.isDir) return 1;
+                return a.name.localeCompare(b.name);
+            });
+            return { canceled: false, path: filePath, files };
+        } catch (err: any) {
+            return { error: err.message };
+        }
+    });
+
     ipcMain.handle('read-file', async (event, filePath) => {
         try {
             const content = fs.readFileSync(filePath, 'utf-8');
@@ -282,7 +314,7 @@ app.whenReady().then(() => {
 
     ipcMain.handle('delete-item', async (event, itemPath) => {
         try {
-            await shell.trashItem(itemPath);
+            fs.rmSync(itemPath, { recursive: true, force: true });
             return { success: true };
         } catch (err: any) {
             return { error: err.message };
