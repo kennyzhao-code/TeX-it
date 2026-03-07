@@ -23,9 +23,6 @@ const FONT = "'NaN Jaune', 'Plus Jakarta Sans', -apple-system, sans-serif";
 const activityItems = [
   { icon: Files, label: "Explorer", path: "/" },
   { icon: Search, label: "Search", path: null },
-  { icon: GitBranch, label: "Version Control", path: "/version-control" },
-  { icon: LayoutDashboard, label: "Extensions", path: null },
-  { icon: Puzzle, label: "Packages", path: null },
 ];
 
 export function Root() {
@@ -39,12 +36,7 @@ export function Root() {
     if (path) navigate(path);
   };
 
-  const pageTitle =
-    location.pathname === "/"
-      ? "Welcome"
-      : location.pathname === "/editor"
-      ? "thesis_main.tex"
-      : "Version Control";
+
 
   return (
     <div
@@ -90,6 +82,16 @@ export function Root() {
                     >
                       Open Folder...
                     </button>
+                    <button 
+                      className="w-full text-left px-3 py-1.5 hover:bg-black/5 text-xs text-[#7A6858] transition-colors"
+                      onMouseDown={(e) => {
+                        e.preventDefault(); // prevent blur
+                        setFileMenuOpen(false);
+                        window.dispatchEvent(new CustomEvent('create-folder-menu-click'));
+                      }}
+                    >
+                      Create New Folder...
+                    </button>
                   </div>
                 )}
               </div>
@@ -121,44 +123,6 @@ export function Root() {
 
       {/* Main Area */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Activity Bar */}
-        <div
-          className="flex flex-col items-center py-2 shrink-0 gap-0.5"
-          style={{
-            width: "48px",
-            background: "#F2EBE1",
-            borderRight: "1px solid #E4D9CC",
-          }}
-        >
-          {activityItems.map((item, i) => {
-            const Icon = item.icon;
-            const isActive = activeActivity === i;
-            return (
-              <button
-                key={item.label}
-                onClick={() => handleActivityClick(i, item.path)}
-                title={item.label}
-                className="flex items-center justify-center rounded-xl transition-all"
-                style={{
-                  width: "36px",
-                  height: "36px",
-                  color: isActive ? "#C8532A" : "#A08870",
-                  background: isActive ? "#FAE5D8" : "transparent",
-                  boxShadow: isActive ? "0 1px 4px rgba(200,83,42,0.12)" : "none",
-                }}
-              >
-                <Icon style={{ width: "16px", height: "16px" }} />
-              </button>
-            );
-          })}
-          <div className="flex-1" />
-          <button
-            className="flex items-center justify-center rounded-xl transition-all hover:bg-black/5"
-            style={{ width: "36px", height: "36px", color: "#A08870" }}
-          >
-            <Settings style={{ width: "16px", height: "16px" }} />
-          </button>
-        </div>
 
         {/* Page Content */}
         <div className="flex-1 overflow-hidden">

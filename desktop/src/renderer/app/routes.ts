@@ -1,5 +1,4 @@
 import { createBrowserRouter } from "react-router";
-import { WelcomeScreen } from "./components/WelcomeScreen";
 import { EditorScreen } from "./components/EditorScreen";
 import { VersionControlScreen } from "./components/VersionControlScreen";
 import { AskBoxScreen } from "./components/AskBoxScreen";
@@ -10,8 +9,7 @@ export const router = createBrowserRouter([
     path: "/",
     Component: Root,
     children: [
-      { index: true, Component: WelcomeScreen },
-      { path: "editor", Component: EditorScreen },
+      { index: true, Component: EditorScreen },
       { path: "version-control", Component: VersionControlScreen },
     ],
   },

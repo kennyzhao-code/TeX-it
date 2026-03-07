@@ -6,6 +6,7 @@ declare global {
     api: {
       compileDocument: (filePath: string) => Promise<{ data?: string; error?: string }>;
       openDirectory: () => Promise<{ canceled: boolean; path?: string; files?: any[]; error?: string }>;
+      createProjectFolder: () => Promise<{ canceled: boolean; path?: string; files?: any[]; error?: string }>;
       readDirectory: (dirPath: string) => Promise<{ files?: any[]; error?: string }>;
       readFile: (filePath: string) => Promise<{ content?: string; error?: string }>;
       saveFile: (filePath: string, content: string) => Promise<{ success?: boolean; error?: string }>;
@@ -270,6 +271,41 @@ export function EditorScreen() {
     }
   };
 
+  const handleCreateProjectFolder = async () => {
+    if (!window.api?.createProjectFolder) return;
+    const result = await window.api.createProjectFolder();
+    if (result.canceled) return;
+    if (result.error) {
+      toast.error("Failed to create folder", { description: result.error });
+      return;
+    }
+    if (result.path && result.files) {
+      setCurrentDir(result.path);
+      setFileTree(result.files);
+      setFolderContents({ [result.path]: result.files });
+      setExpandedFolders(new Set());
+      setOpenTabs([]);
+      setActiveTabPath(null);
+      setCode("");
+    }
+  };
+
+  const refreshWorkspace = async () => {
+    if (!window.api || !currentDir) return;
+    const res = await window.api.readDirectory(currentDir);
+    if (!res.error && res.files) {
+      setFileTree(res.files);
+    }
+    const newContents = { ...folderContents };
+    for (const dir of Array.from(expandedFolders)) {
+      const subRes = await window.api.readDirectory(dir);
+      if (!subRes.error && subRes.files) {
+        newContents[dir] = subRes.files;
+      }
+    }
+    setFolderContents(newContents);
+  };
+
   const handleToggleFolder = async (file: FileEntry) => {
     if (!file.isDir || !window.api) return;
 
@@ -334,6 +370,7 @@ export function EditorScreen() {
 
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('open-folder-menu-click', handleMenuClick);
+    window.addEventListener('create-folder-menu-click', handleCreateProjectFolder);
     const handleGlobalClick = () => {
       setContextMenu(null);
       setCreateMenuOpen(null);
@@ -342,6 +379,7 @@ export function EditorScreen() {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('open-folder-menu-click', handleMenuClick);
+      window.removeEventListener('create-folder-menu-click', handleCreateProjectFolder);
       window.removeEventListener('click', handleGlobalClick);
     };
   }, [handleSaveFile]);
@@ -419,9 +457,8 @@ export function EditorScreen() {
       toast.error("Failed to rename", { description: result.error });
     } else if (result.newPath) {
       toast.success("Renamed successfully");
-      // Fast refresh for root - a full tree re-read would be cleaner but this works
       if (currentDir) {
-        queueMicrotask(() => handleOpenFolder()); // Lazy refresh, can optimize later
+        queueMicrotask(() => refreshWorkspace());
       }
     }
     setRenamingFile(null);
@@ -433,8 +470,14 @@ export function EditorScreen() {
     if (result.error) {
       toast.error("Failed to delete", { description: result.error });
     } else {
-      toast.success("Moved to trash");
-      if (currentDir) queueMicrotask(() => handleOpenFolder()); // Lazy refresh
+      toast.success("Deleted successfully");
+      if (currentDir) queueMicrotask(() => refreshWorkspace());
+      
+      setOpenTabs(tabs => tabs.filter(t => t.path !== file.path && !t.path.startsWith(file.path + '/')));
+      if (activeTabPath === file.path || (activeTabPath && activeTabPath.startsWith(file.path + '/'))) {
+        setActiveTabPath(null);
+        setCode("");
+      }
     }
   };
 
@@ -549,8 +592,11 @@ export function EditorScreen() {
               <div className="py-2 px-2 flex-1 relative">
                 {!currentDir ? (
                   <div className="flex flex-col items-center justify-center p-4 gap-3 h-full text-center">
-                    <button onClick={handleOpenFolder} className="px-4 py-2 rounded-xl transition-colors font-medium text-xs shadow-sm hover:opacity-90 active:scale-95" style={{ background: "#C8532A", color: "#FFF" }}>
+                    <button onClick={handleOpenFolder} className="px-4 py-2 w-full rounded-xl transition-colors font-medium text-xs shadow-sm hover:opacity-90 active:scale-95" style={{ background: "#C8532A", color: "#FFF" }}>
                       Open Folder
+                    </button>
+                    <button onClick={handleCreateProjectFolder} className="px-4 py-2 w-full rounded-xl transition-colors font-medium text-xs shadow-sm hover:opacity-90 active:scale-95" style={{ background: "transparent", color: "#C8532A", border: "1px solid #C8532A" }}>
+                      Create New Folder
                     </button>
                     <span style={{ fontSize: "10px", color: "#A08870", fontFamily: FONT }}>No folder opened.</span>
                   </div>

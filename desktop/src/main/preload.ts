@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 contextBridge.exposeInMainWorld('api', {
     compileDocument: (filePath: string) => ipcRenderer.invoke('compile-document', filePath),
     openDirectory: () => ipcRenderer.invoke('open-directory'),
+    createProjectFolder: () => ipcRenderer.invoke('create-project-folder'),
     readDirectory: (dirPath: string) => ipcRenderer.invoke("read-directory", dirPath),
     readFile: (filePath: string) => ipcRenderer.invoke('read-file', filePath),
     saveFile: (filePath: string | null, content: string) => ipcRenderer.invoke("save-file", filePath, content),
