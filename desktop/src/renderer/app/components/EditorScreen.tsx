@@ -12,7 +12,12 @@ declare global {
       createItem: (dirPath: string, name: string, isDir: boolean) => Promise<{ success?: boolean; path?: string; error?: string }>;
       renameItem: (oldPath: string, newName: string) => Promise<{ success?: boolean; newPath?: string; error?: string }>;
       deleteItem: (itemPath: string) => Promise<{ success?: boolean; error?: string }>;
-      chatGemini: (prompt: string) => Promise<{ response?: string; error?: string }>;
+      openAskBox: (code: string) => Promise<void>;
+      askGeminiEdit: (payload: { prompt: string, content: string }) => Promise<{ content?: string; error?: string }>;
+      sendProposal: (newCode: string) => Promise<{ success: boolean }>;
+      onInitAskBox: (cb: (code: string) => void) => void;
+      onProposalReceived: (cb: (code: string) => void) => void;
+      getDeepgramKey: () => Promise<{ key?: string; error?: string }>;
     };
   }
 }
@@ -45,7 +50,10 @@ import {
   MoreVertical,
   Trash2,
   Edit2,
+  Check,
 } from "lucide-react";
+
+import ReactDiffViewer, { DiffMethod } from "react-diff-viewer-continued";
 
 const FONT = "'NaN Jaune', 'Plus Jakarta Sans', -apple-system, sans-serif";
 const MONO = "'JetBrains Mono', 'Fira Code', monospace";
@@ -108,13 +116,13 @@ type Token = { type: string; value: string };
 
 // Light sepia LaTeX syntax colors
 const TOKEN_COLORS: Record<string, string> = {
-  command:  "#9B3FBE",   // purple
-  math:     "#B07800",   // warm amber
-  comment:  "#A8998A",   // muted warm grey
-  brace:    "#2C6FAC",   // blue
-  bracket:  "#2C6FAC",
-  text:     "#3C2A18",   // dark brown text
-  newline:  "#3C2A18",
+  command: "#9B3FBE",   // purple
+  math: "#B07800",   // warm amber
+  comment: "#A8998A",   // muted warm grey
+  brace: "#2C6FAC",   // blue
+  bracket: "#2C6FAC",
+  text: "#3C2A18",   // dark brown text
+  newline: "#3C2A18",
 };
 
 function tokenizeLatex(code: string): Token[] {
@@ -186,7 +194,7 @@ const recentCommits = [
 export function EditorScreen() {
   const [currentDir, setCurrentDir] = useState<string | null>(null);
   const [fileTree, setFileTree] = useState<FileEntry[]>([]);
-  const [openTabs, setOpenTabs] = useState<{name: string, path: string, modified: boolean}[]>([]);
+  const [openTabs, setOpenTabs] = useState<{ name: string, path: string, modified: boolean }[]>([]);
   const [activeTabPath, setActiveTabPath] = useState<string | null>(null);
   const [createMenuOpen, setCreateMenuOpen] = useState<{ path: string, x: number, y: number } | null>(null); // tracks target dir for + menu
   const [isCreatingItem, setIsCreatingItem] = useState<{ isDir: boolean, targetDir: string } | null>(null);
@@ -205,6 +213,18 @@ export function EditorScreen() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const editorContainerRef = useRef<HTMLDivElement>(null);
   const lineNumbersRef = useRef<HTMLDivElement>(null);
+
+  const [diffMode, setDiffMode] = useState(false);
+  const [proposedCode, setProposedCode] = useState("");
+
+  useEffect(() => {
+    if (window.api) {
+      window.api.onProposalReceived((newCode: string) => {
+        setProposedCode(newCode);
+        setDiffMode(true);
+      });
+    }
+  }, []);
 
   // Sync scroll between textarea and highlighted pre
   const handleEditorScroll = useCallback(() => {
@@ -279,9 +299,9 @@ export function EditorScreen() {
     if (!openTabs.find(t => t.path === file.path)) {
       setOpenTabs([...openTabs, { name: file.name, path: file.path, modified: false }]);
     }
-    
+
     setActiveTabPath(file.path);
-    
+
     const result = await window.api.readFile(file.path);
     if (result.error) {
       toast.error("Failed to read file", { description: result.error });
@@ -293,7 +313,7 @@ export function EditorScreen() {
 
   const handleSaveFile = useCallback(async () => {
     if (!activeTabPath || !window.api) return;
-    
+
     const result = await window.api.saveFile(activeTabPath, code);
     if (result.error) {
       toast.error("Failed to save file", { description: result.error });
@@ -311,7 +331,7 @@ export function EditorScreen() {
       }
     };
     const handleMenuClick = () => handleOpenFolder();
-    
+
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('open-folder-menu-click', handleMenuClick);
     const handleGlobalClick = () => {
@@ -338,8 +358,8 @@ export function EditorScreen() {
   };
 
   const handleCreateItemSubmit = async () => {
-    if (!window.api || !isCreatingItem) return;
-    
+    if (!currentDir || !window.api || !isCreatingItem) return;
+
     let name = newItemName.trim();
     if (!name) {
       setIsCreatingItem(null);
@@ -571,11 +591,35 @@ export function EditorScreen() {
                         >
                           <Plus style={{ width: "12px", height: "12px" }} />
                         </button>
+                        {createMenuOpen && (
+                          <div className="absolute top-full right-0 mt-1 w-32 rounded-lg shadow-lg py-1 z-50 overflow-hidden" style={{ background: "#FDFBF7", border: "1px solid #EAE0D5" }}>
+                            <button
+                              className="w-full text-left px-3 py-1.5 hover:bg-black/5 flex items-center gap-2 transition-colors"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                handleCreateItemInit(false);
+                              }}
+                            >
+                              <FileText style={{ width: "12px", height: "12px", color: "#C8BEB0" }} />
+                              <span style={{ fontSize: "11px", color: "#7A6858", fontFamily: FONT }}>New File</span>
+                            </button>
+                            <button
+                              className="w-full text-left px-3 py-1.5 hover:bg-black/5 flex items-center gap-2 transition-colors"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                handleCreateItemInit(true);
+                              }}
+                            >
+                              <FolderOpen style={{ width: "12px", height: "12px", color: "#C8532A" }} />
+                              <span style={{ fontSize: "11px", color: "#7A6858", fontFamily: FONT }}>New Folder</span>
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
                     {fileTree.length === 0 && !isCreatingItem ? (
                       <div className="text-center py-4 opacity-60">
-                         <span style={{ fontSize: "10px", color: "#A08870", fontFamily: FONT }}>Folder is empty</span>
+                        <span style={{ fontSize: "10px", color: "#A08870", fontFamily: FONT }}>Folder is empty</span>
                       </div>
                     ) : (
                       <>
@@ -1176,6 +1220,71 @@ export function EditorScreen() {
             </button>
           ))}
           <div className="flex-1" />
+          {/* Ask AI Toolbar Button */}
+          {activeTabPath && !diffMode && (
+            <div className="flex items-center px-1">
+              <button
+                onClick={() => {
+                  if (window.api) {
+                    window.api.openAskBox(code);
+                  }
+                }}
+                className="flex items-center gap-1.5 px-3 py-1 rounded-xl transition-all"
+                style={{
+                  background: "transparent",
+                  border: "1.5px solid #F0C9B4",
+                  color: "#C8532A",
+                  fontSize: "12px",
+                  fontFamily: FONT,
+                  fontWeight: 500,
+                }}
+              >
+                <Sparkles style={{ width: "11px", height: "11px" }} />
+                Ask AI
+              </button>
+            </div>
+          )}
+
+          {/* Diff Controls */}
+          {diffMode && (
+            <div className="flex items-center gap-2 px-3">
+              <button
+                onClick={() => setDiffMode(false)}
+                className="flex items-center gap-1.5 px-3 py-1 rounded-xl transition-all hover:bg-black/5"
+                style={{
+                  color: "#A08870",
+                  fontSize: "12px",
+                  fontFamily: FONT,
+                  fontWeight: 500,
+                }}
+              >
+                <X style={{ width: "12px", height: "12px" }} />
+                Reject
+              </button>
+              <button
+                onClick={() => {
+                  setCode(proposedCode);
+                  if (activeTabPath) {
+                    setOpenTabs(tabs => tabs.map(t => t.path === activeTabPath ? { ...t, modified: true } : t));
+                  }
+                  setDiffMode(false);
+                }}
+                className="flex items-center gap-1.5 px-3 py-1 rounded-xl transition-all"
+                style={{
+                  background: "#DDF2E8",
+                  border: "1.5px solid #BDE5CF",
+                  color: "#2E7D52",
+                  fontSize: "12px",
+                  fontFamily: FONT,
+                  fontWeight: 500,
+                }}
+              >
+                <Check style={{ width: "12px", height: "12px" }} />
+                Accept
+              </button>
+            </div>
+          )}
+
           {/* Compile button */}
           <div className="flex items-center px-3">
             <button
@@ -1209,100 +1318,136 @@ export function EditorScreen() {
             className="flex-1 flex overflow-hidden"
             style={{ background: "#FEFCF8" }}
           >
-            {/* Line numbers */}
-            <div
-              ref={lineNumbersRef}
-              className="shrink-0 text-right pr-4 pt-4 pb-4 select-none overflow-hidden"
-              style={{
-                width: "48px",
-                color: "#D4C8B0",
-                fontSize: "12px",
-                fontFamily: MONO,
-                lineHeight: "1.65",
-                background: "#FAF6F0",
-                borderRight: "1px solid #EDE5D8",
-              }}
-            >
-              {lines.map((_, i) => (
-                <div key={i}>{i + 1}</div>
-              ))}
-            </div>
-
-            {/* Editor area: syntax highlight layer + transparent textarea on top */}
-            <div
-              ref={editorContainerRef}
-              className="flex-1 relative overflow-hidden"
-            >
-              {/* Syntax-highlighted background layer */}
-              <pre
-                aria-hidden="true"
-                style={{
-                  position: "absolute",
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  padding: "16px 0 16px 20px",
-                  fontSize: "12px",
-                  fontFamily: MONO,
-                  lineHeight: "1.65",
-                  margin: 0,
-                  whiteSpace: "pre",
-                  color: "#3C2A18",
-                  overflow: "auto",
-                  pointerEvents: "none",
-                }}
-              >
-                {tokens.map((token, i) =>
-                  token.type === "newline" ? (
-                    <br key={i} />
-                  ) : (
-                    <span key={i} style={{ color: TOKEN_COLORS[token.type] }}>
-                      {token.value}
-                    </span>
-                  )
-                )}
-                {/* Extra newline so textarea and pre match in height */}
-                {"\n"}
-              </pre>
-
-              {/* Editable textarea overlay */}
-                <textarea
-                  ref={textareaRef}
-                  value={code}
-                  onChange={(e) => {
-                    setCode(e.target.value);
-                    if (activeTabPath) {
-                      setOpenTabs(tabs => tabs.map(t => t.path === activeTabPath ? { ...t, modified: true } : t));
+            {diffMode ? (
+              <div className="flex-1 overflow-auto bg-white text-sm" style={{ fontFamily: MONO }}>
+                <ReactDiffViewer
+                  oldValue={code}
+                  newValue={proposedCode}
+                  splitView={false}
+                  compareMethod={DiffMethod.WORDS}
+                  styles={{
+                    variables: {
+                      light: {
+                        diffViewerBackground: '#FEFCF8',
+                        addedBackground: '#e6ffed',
+                        addedColor: '#24292e',
+                        removedBackground: '#ffeef0',
+                        removedColor: '#24292e',
+                        wordAddedBackground: '#acf2bd',
+                        wordRemovedBackground: '#fdb8c0',
+                        addedGutterBackground: '#cdffd8',
+                        removedGutterBackground: '#ffdce0',
+                        gutterBackground: '#FAF6F0',
+                        gutterBackgroundDark: '#FAF6F0',
+                        highlightBackground: '#fffbdd',
+                        highlightGutterBackground: '#fff5b1',
+                        codeFoldGutterBackground: '#EDE5D8',
+                        codeFoldBackground: '#FAF6F0',
+                        emptyLineBackground: '#FEFCF8',
+                        gutterColor: '#D4C8B0',
+                        addedGutterColor: '#28a745',
+                        removedGutterColor: '#cb2431',
+                      }
                     }
                   }}
-                onScroll={handleEditorScroll}
-                spellCheck={false}
-                autoCapitalize="off"
-                autoCorrect="off"
-                style={{
-                  position: "absolute",
-                  top: 0,
-                  left: 0,
-                  width: "100%",
-                  height: "100%",
-                  padding: "16px 0 16px 20px",
-                  fontSize: "12px",
-                  fontFamily: MONO,
-                  lineHeight: "1.65",
-                  margin: 0,
-                  border: "none",
-                  outline: "none",
-                  resize: "none",
-                  background: "transparent",
-                  color: "transparent",
-                  caretColor: "#C8532A",
-                  whiteSpace: "pre",
-                  overflow: "auto",
-                  zIndex: 1,
-                }}
-              />
-            </div>
+                />
+              </div>
+            ) : (
+              <>
+                {/* Line numbers */}
+                <div
+                  ref={lineNumbersRef}
+                  className="shrink-0 text-right pr-4 pt-4 pb-4 select-none overflow-hidden"
+                  style={{
+                    width: "48px",
+                    color: "#D4C8B0",
+                    fontSize: "12px",
+                    fontFamily: MONO,
+                    lineHeight: "1.65",
+                    background: "#FAF6F0",
+                    borderRight: "1px solid #EDE5D8",
+                  }}
+                >
+                  {lines.map((_, i) => (
+                    <div key={i}>{i + 1}</div>
+                  ))}
+                </div>
+
+                {/* Editor area: syntax highlight layer + transparent textarea on top */}
+                <div
+                  ref={editorContainerRef}
+                  className="flex-1 relative overflow-hidden"
+                >
+                  {/* Syntax-highlighted background layer */}
+                  <pre
+                    aria-hidden="true"
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      padding: "16px 0 16px 20px",
+                      fontSize: "12px",
+                      fontFamily: MONO,
+                      lineHeight: "1.65",
+                      margin: 0,
+                      whiteSpace: "pre",
+                      color: "#3C2A18",
+                      overflow: "auto",
+                      pointerEvents: "none",
+                    }}
+                  >
+                    {tokens.map((token, i) =>
+                      token.type === "newline" ? (
+                        <br key={i} />
+                      ) : (
+                        <span key={i} style={{ color: TOKEN_COLORS[token.type] }}>
+                          {token.value}
+                        </span>
+                      )
+                    )}
+                    {/* Extra newline so textarea and pre match in height */}
+                    {"\n"}
+                  </pre>
+
+                  {/* Editable textarea overlay */}
+                  <textarea
+                    ref={textareaRef}
+                    value={code}
+                    onChange={(e) => {
+                      setCode(e.target.value);
+                      if (activeTabPath) {
+                        setOpenTabs(tabs => tabs.map(t => t.path === activeTabPath ? { ...t, modified: true } : t));
+                      }
+                    }}
+                    onScroll={handleEditorScroll}
+                    spellCheck={false}
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      width: "100%",
+                      height: "100%",
+                      padding: "16px 0 16px 20px",
+                      fontSize: "12px",
+                      fontFamily: MONO,
+                      lineHeight: "1.65",
+                      margin: 0,
+                      border: "none",
+                      outline: "none",
+                      resize: "none",
+                      background: "transparent",
+                      color: "transparent",
+                      caretColor: "#C8532A",
+                      whiteSpace: "pre",
+                    }}
+                  />
+                </div>
+              </>
+            )}
           </div>
 
           {/* Divider */}

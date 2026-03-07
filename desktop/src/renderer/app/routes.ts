@@ -2,6 +2,7 @@ import { createBrowserRouter } from "react-router";
 import { WelcomeScreen } from "./components/WelcomeScreen";
 import { EditorScreen } from "./components/EditorScreen";
 import { VersionControlScreen } from "./components/VersionControlScreen";
+import { AskBoxScreen } from "./components/AskBoxScreen";
 import { Root } from "./components/Root";
 
 export const router = createBrowserRouter([
@@ -14,4 +15,5 @@ export const router = createBrowserRouter([
       { path: "version-control", Component: VersionControlScreen },
     ],
   },
+  { path: "/ask-box", Component: AskBoxScreen },
 ]);

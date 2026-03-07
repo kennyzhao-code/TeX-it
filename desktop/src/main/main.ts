@@ -5,6 +5,7 @@ import { spawn, ChildProcess } from 'child_process';
 const latex = require('node-latex');
 
 let mainWindow: BrowserWindow | null = null;
+let askBoxWindow: BrowserWindow | null = null;
 let goProcess: ChildProcess | null = null;
 
 function createWindow() {
@@ -100,15 +101,84 @@ app.whenReady().then(() => {
         });
     });
 
+    ipcMain.handle('open-ask-box', async (event, currentCode) => {
+        if (askBoxWindow) {
+            askBoxWindow.focus();
+            askBoxWindow.webContents.send('init-ask-box', currentCode);
+            return;
+        }
+
+        askBoxWindow = new BrowserWindow({
+            width: 500,
+            height: 400,
+            alwaysOnTop: true,
+            webPreferences: {
+                preload: path.join(__dirname, 'preload.js'),
+                nodeIntegration: false,
+                contextIsolation: true,
+            },
+        });
+
+        askBoxWindow.loadURL('http://localhost:5173/ask-box');
+
+        askBoxWindow.webContents.once('did-finish-load', () => {
+            askBoxWindow!.webContents.send('init-ask-box', currentCode);
+        });
+
+        askBoxWindow.on('closed', () => {
+            askBoxWindow = null;
+        });
+    });
+
+    ipcMain.handle('ask-gemini-edit', async (event, payload: { prompt: string, content: string }) => {
+        try {
+            const response = await fetch('http://localhost:8080/api/ai/edit', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await response.json();
+            return data;
+        } catch (err: any) {
+            return { error: err.message };
+        }
+    });
+
+    ipcMain.handle('send-proposal', async (event, newCode) => {
+        if (mainWindow) {
+            mainWindow.webContents.send('proposal-received', newCode);
+        }
+        if (askBoxWindow) {
+            askBoxWindow.close();
+        }
+        return { success: true };
+    });
+
+    ipcMain.handle('get-deepgram-key', async () => {
+        // Read the Deepgram API key from the backend .env file
+        try {
+            const envPath = path.join(__dirname, '../../backend/.env');
+            if (fs.existsSync(envPath)) {
+                const envContent = fs.readFileSync(envPath, 'utf-8');
+                const match = envContent.match(/^DEEPGRAM_API_KEY\s*=\s*(.+)$/m);
+                if (match) return { key: match[1].trim() };
+            }
+            return { error: 'DEEPGRAM_API_KEY not found in backend/.env' };
+        } catch (err: any) {
+            return { error: err.message };
+        }
+    });
+
+
     ipcMain.handle('open-directory', async () => {
         if (!mainWindow) return { error: 'No main window' };
         const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
             properties: ['openDirectory'],
             title: 'Open Project Folder'
         });
-        
+
         if (canceled || filePaths.length === 0) return { canceled: true };
-        
+
         const dirPath = filePaths[0];
         try {
             const items = fs.readdirSync(dirPath, { withFileTypes: true });
