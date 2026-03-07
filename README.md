@@ -1,8 +1,8 @@
-# LTeXch
+# TeX-it
 
 > **LaTeX should not feel harder than the ideas you're trying to write.**
 
-LTeXch is a **native AI-powered LaTeX IDE** that makes technical writing faster and more intuitive. Speak your ideas, upload handwritten notes, or describe edits in plain English — LTeXch handles the LaTeX for you.
+TeX-it is a **native AI-powered LaTeX IDE** that makes technical writing faster and more intuitive. Speak your ideas, upload handwritten notes, or describe edits in plain English — TeX-it handles the LaTeX for you.
 
 ---
 
