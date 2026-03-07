@@ -597,7 +597,7 @@ export function EditorScreen() {
                               className="w-full text-left px-3 py-1.5 hover:bg-black/5 flex items-center gap-2 transition-colors"
                               onMouseDown={(e) => {
                                 e.preventDefault();
-                                handleCreateItemInit(false);
+                                handleCreateItemInit(false, createMenuOpen.path);
                               }}
                             >
                               <FileText style={{ width: "12px", height: "12px", color: "#C8BEB0" }} />
@@ -607,7 +607,7 @@ export function EditorScreen() {
                               className="w-full text-left px-3 py-1.5 hover:bg-black/5 flex items-center gap-2 transition-colors"
                               onMouseDown={(e) => {
                                 e.preventDefault();
-                                handleCreateItemInit(true);
+                                handleCreateItemInit(true, createMenuOpen.path);
                               }}
                             >
                               <FolderOpen style={{ width: "12px", height: "12px", color: "#C8532A" }} />
@@ -958,10 +958,6 @@ export function EditorScreen() {
                   </div>
                 )}
               </div>
-
-
-
-
             </div>
           )}
 

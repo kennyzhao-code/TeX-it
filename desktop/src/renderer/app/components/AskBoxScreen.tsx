@@ -38,7 +38,14 @@ export function AskBoxScreen() {
             streamRef.current.getTracks().forEach(track => track.stop());
             streamRef.current = null;
         }
-        setInterimText("");
+        setInterimText((currInterim) => {
+            if (currInterim) {
+                const updated = (stableTextRef.current + " " + currInterim).trim();
+                stableTextRef.current = updated;
+                setPrompt(updated);
+            }
+            return "";
+        });
         setIsRecording(false);
     }, []);
 
@@ -133,13 +140,20 @@ export function AskBoxScreen() {
         }
     };
 
+    // The full displayed text = stable finalized text + live interim
+    const displayedPrompt = isRecording && interimText
+        ? (prompt ? prompt + " " : "") + interimText
+        : prompt;
+
     const handleSubmit = async (e?: React.FormEvent) => {
         e?.preventDefault();
+
+        const finalPrompt = displayedPrompt.trim();
         if (isRecording) stopRecording();
 
-        const finalPrompt = prompt.trim();
         if (!finalPrompt || !currentCode || !window.api) return;
 
+        setPrompt(finalPrompt);
         setLoading(true);
         setError(null);
 
@@ -157,10 +171,6 @@ export function AskBoxScreen() {
         }
     };
 
-    // The full displayed text = stable finalized text + live interim
-    const displayedPrompt = isRecording && interimText
-        ? (prompt ? prompt + " " : "") + interimText
-        : prompt;
 
     return (
         <div className="flex flex-col h-screen w-full" style={{ background: "#FEFCF8", padding: "16px", boxSizing: "border-box" }}>
@@ -295,7 +305,7 @@ export function AskBoxScreen() {
                     {/* Submit button */}
                     <button
                         onClick={handleSubmit}
-                        disabled={loading || !prompt.trim()}
+                        disabled={loading || !displayedPrompt.trim()}
                         className="flex items-center gap-2 px-4 py-2 rounded-xl transition-all"
                         style={{
                             background: loading ? "#FAF0E8" : "#C8532A",
@@ -303,7 +313,7 @@ export function AskBoxScreen() {
                             fontSize: "12px",
                             fontFamily: FONT,
                             fontWeight: 500,
-                            opacity: !prompt.trim() && !loading ? 0.5 : 1,
+                            opacity: !displayedPrompt.trim() && !loading ? 0.5 : 1,
                         }}
                     >
                         {loading ? (
