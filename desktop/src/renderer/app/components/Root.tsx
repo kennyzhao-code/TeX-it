@@ -4,7 +4,8 @@ import { Outlet, useNavigate, useLocation } from "react-router";
 import {
   Files,
   Search,
-  GitBranch,
+
+
   Puzzle,
   Settings,
   LayoutDashboard,
@@ -89,7 +90,7 @@ export function Root() {
                 </button>
                 {fileMenuOpen && (
                   <div className="absolute top-full left-0 mt-1 w-48 rounded-lg shadow-lg py-1 z-50 overflow-hidden" style={{ background: "#FDFBF7", border: "1px solid #EAE0D5" }}>
-                    <button 
+                    <button
                       className="w-full text-left px-3 py-1.5 hover:bg-black/5 text-xs text-[#7A6858] transition-colors"
                       onMouseDown={(e) => {
                         e.preventDefault(); // prevent blur
@@ -99,7 +100,7 @@ export function Root() {
                     >
                       Open Folder...
                     </button>
-                    <button 
+                    <button
                       className="w-full text-left px-3 py-1.5 hover:bg-black/5 text-xs text-[#7A6858] transition-colors"
                       onMouseDown={(e) => {
                         e.preventDefault(); // prevent blur
@@ -163,11 +164,11 @@ export function Root() {
           </div> */}
           <div className="flex items-center gap-1">
             <Circle
-              style={{ 
-                width: "5px", 
-                height: "5px", 
-                fill: errorCount > 0 ? "#DC2626" : "#3D9A6A", 
-                color: errorCount > 0 ? "#DC2626" : "#3D9A6A" 
+              style={{
+                width: "5px",
+                height: "5px",
+                fill: errorCount > 0 ? "#DC2626" : "#3D9A6A",
+                color: errorCount > 0 ? "#DC2626" : "#3D9A6A"
               }}
             />
             <span style={{ color: errorCount > 0 ? "#DC2626" : "#A08870", fontSize: "10px", fontFamily: FONT, fontWeight: errorCount > 0 ? 600 : 400 }}>

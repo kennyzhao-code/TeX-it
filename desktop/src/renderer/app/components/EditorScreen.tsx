@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { toast } from "sonner";
+import logoSrc from "../../../assets/logo.png";
 
 declare global {
   interface Window {
@@ -40,9 +41,7 @@ import {
   BookOpen,
   Maximize2,
   ImagePlus,
-  GitBranch,
-  GitCommit,
-  Upload,
+
   Image,
   File,
   Mic,
@@ -282,25 +281,7 @@ type UploadedFile = {
 };
 
 /* ─────────── Assets data ─────────── */
-const assetFiles: { name: string; type: string }[] = [
-  { name: "diagram_01.png", type: "image" },
-  { name: "graph_results.svg", type: "image" },
-  { name: "logo.pdf", type: "pdf" },
-];
 
-/* ─────────── Git data for Version Control tab ─────────── */
-const changedFiles = [
-  { name: "thesis_main.tex", status: "M" as const, color: "#D4800A" },
-  { name: "chapter_03.tex", status: "M" as const, color: "#D4800A" },
-  { name: "bibliography.bib", status: "M" as const, color: "#D4800A" },
-  { name: "figures/diagram_01.png", status: "A" as const, color: "#3D9A6A" },
-];
-
-const recentCommits = [
-  { hash: "a4f2c8e", message: "Fix equation numbering in Ch. 3", date: "2h ago" },
-  { hash: "9d31b7f", message: "Add bibliography entries", date: "Yesterday" },
-  { hash: "e82a1c4", message: "Restructure introduction", date: "3 days ago" },
-];
 
 export function EditorScreen() {
   const [currentDir, setCurrentDir] = useState<string | null>(null);
@@ -359,7 +340,7 @@ export function EditorScreen() {
   const [compiled, setCompiled] = useState(false);
   const [compileTime, setCompileTime] = useState<number>(0);
   const [lastCompileError, setLastCompileError] = useState<string | null>(null);
-  const [sidebarTab, setSidebarTab] = useState<"files" | "vcs">("files");
+
   const [dragOver, setDragOver] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -374,8 +355,8 @@ export function EditorScreen() {
 
   useEffect(() => {
     const errorCount = diagnostics.length + (lastCompileError ? 1 : 0);
-    window.dispatchEvent(new CustomEvent('syntax-errors-change', { 
-      detail: { count: errorCount } 
+    window.dispatchEvent(new CustomEvent('syntax-errors-change', {
+      detail: { count: errorCount }
     }));
   }, [diagnostics.length, lastCompileError]);
 
@@ -391,8 +372,8 @@ export function EditorScreen() {
       line: lines.length,
       col: lines[lines.length - 1].length + 1
     });
-    window.dispatchEvent(new CustomEvent('cursor-pos-change', { 
-      detail: { line: lines.length, col: lines[lines.length - 1].length + 1 } 
+    window.dispatchEvent(new CustomEvent('cursor-pos-change', {
+      detail: { line: lines.length, col: lines[lines.length - 1].length + 1 }
     }));
   }, []);
 
@@ -616,7 +597,7 @@ export function EditorScreen() {
     } else {
       toast.success("Deleted successfully");
       if (currentDir) queueMicrotask(() => refreshWorkspace());
-      
+
       setOpenTabs(tabs => tabs.filter(t => t.path !== file.path && !t.path.startsWith(file.path + '/')));
       if (activeTabPath === file.path || (activeTabPath && activeTabPath.startsWith(file.path + '/'))) {
         setActiveTabPath(null);
@@ -756,634 +737,457 @@ export function EditorScreen() {
           borderRight: "1px solid #E4D9CC",
         }}
       >
-        {/* Sidebar header with pill toggle */}
-        <div
-          className="px-3 py-2 flex items-center justify-between"
-          style={{ borderBottom: "1px solid #E4D9CC" }}
-        >
-          {/* Files / Version Control pill toggle */}
-          <div
-            className="flex items-center p-0.5 rounded-xl gap-0.5"
-            style={{ background: "#E8DDD0", border: "1px solid #DED3C4" }}
-          >
-            {([
-              { id: "files" as const, label: "Files" },
-              { id: "vcs" as const, label: "VCS" },
-            ]).map(({ id, label }) => {
-              const isActive = sidebarTab === id;
-              return (
-                <button
-                  key={id}
-                  onClick={() => setSidebarTab(id)}
-                  className="flex items-center gap-1.5 rounded-lg transition-all"
-                  style={{
-                    padding: "3px 10px",
-                    background: isActive ? "#FFFFFF" : "transparent",
-                    color: isActive ? "#C8532A" : "#A08870",
-                    fontSize: "10px",
-                    fontFamily: FONT,
-                    fontWeight: isActive ? 600 : 400,
-                    letterSpacing: "0.04em",
-                    textTransform: "uppercase",
-                    boxShadow: isActive
-                      ? "0 1px 3px rgba(44,31,18,0.10)"
-                      : "none",
-                    transition: "all 0.15s ease",
-                  }}
-                >
-                  {id === "vcs" && (
-                    <GitBranch style={{ width: "10px", height: "10px", flexShrink: 0 }} />
-                  )}
-                  {label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
+
+        {/* Spacer matching the tab bar + compile toolbar height on the right */}
+        <div style={{ height: "36px", borderBottom: "1px solid #E4D9CC", flexShrink: 0 }} />
 
         {/* Sidebar content area */}
         <div className="overflow-auto flex-1">
-          {/* ────── FILES TAB ────── */}
-          {sidebarTab === "files" && (
-            <div className="flex flex-col h-full">
-              {/* File tree */}
-              <div className="py-2 px-2 flex-1 relative">
-                {!currentDir ? (
-                  <div className="flex flex-col items-center justify-center p-4 gap-3 h-full text-center">
-                    <button onClick={handleOpenFolder} className="px-4 py-2 w-full rounded-xl transition-colors font-medium text-xs shadow-sm hover:opacity-90 active:scale-95" style={{ background: "#C8532A", color: "#FFF" }}>
-                      Open Folder
-                    </button>
-                    <button onClick={handleCreateProjectFolder} className="px-4 py-2 w-full rounded-xl transition-colors font-medium text-xs shadow-sm hover:opacity-90 active:scale-95" style={{ background: "transparent", color: "#C8532A", border: "1px solid #C8532A" }}>
-                      Create New Folder
-                    </button>
-                    <span style={{ fontSize: "10px", color: "#A08870", fontFamily: FONT }}>No folder opened.</span>
-                  </div>
-                ) : (
-                  <>
-                    <div className="flex items-center justify-between px-2 mb-1 group">
-                      <div className="flex items-center gap-1 cursor-pointer transition-opacity hover:opacity-70" onClick={handleOpenFolder} title="Click to open a different folder">
-                        <FolderOpen style={{ width: "10px", height: "10px", color: "#C8532A" }} />
-                        <span
-                          style={{
-                            color: "#C8532A",
-                            fontSize: "10px",
-                            fontFamily: FONT,
-                            letterSpacing: "0.08em",
-                            textTransform: "uppercase",
-                            fontWeight: 600,
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {currentDir?.split(/[/\\]/).pop() || "Project"}
-                        </span>
-                      </div>
-                      <div className="relative flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (createMenuOpen?.path === currentDir) {
-                              setCreateMenuOpen(null);
-                            } else {
-                              const rect = e.currentTarget.getBoundingClientRect();
-                              setCreateMenuOpen({ path: currentDir!, x: rect.left, y: rect.bottom });
-                            }
-                          }}
-                          className="hover:bg-black/5 rounded-md p-0.5 transition-colors"
-                          style={{ color: "#A08870" }}
-                        >
-                          <Plus style={{ width: "12px", height: "12px" }} />
-                        </button>
-                        {createMenuOpen && (
-                          <div className="absolute top-full right-0 mt-1 w-32 rounded-lg shadow-lg py-1 z-50 overflow-hidden" style={{ background: "#FDFBF7", border: "1px solid #EAE0D5" }}>
-                            <button
-                              className="w-full text-left px-3 py-1.5 hover:bg-black/5 flex items-center gap-2 transition-colors"
-                              onMouseDown={(e) => {
-                                e.preventDefault();
-                                handleCreateItemInit(false, createMenuOpen.path);
-                              }}
-                            >
-                              <FileText style={{ width: "12px", height: "12px", color: "#C8BEB0" }} />
-                              <span style={{ fontSize: "11px", color: "#7A6858", fontFamily: FONT }}>New File</span>
-                            </button>
-                            <button
-                              className="w-full text-left px-3 py-1.5 hover:bg-black/5 flex items-center gap-2 transition-colors"
-                              onMouseDown={(e) => {
-                                e.preventDefault();
-                                handleCreateItemInit(true, createMenuOpen.path);
-                              }}
-                            >
-                              <FolderOpen style={{ width: "12px", height: "12px", color: "#C8532A" }} />
-                              <span style={{ fontSize: "11px", color: "#7A6858", fontFamily: FONT }}>New Folder</span>
-                            </button>
-                          </div>
-                        )}
-                      </div>
+          {/* ────── FILES ────── */}
+          <div className="flex flex-col h-full">
+
+            {/* File tree */}
+            <div className="py-2 px-2 flex-1 relative">
+              {!currentDir ? (
+                <div className="flex flex-col items-center justify-center p-4 gap-3 h-full text-center">
+                  <button onClick={handleOpenFolder} className="px-4 py-2 w-full rounded-xl transition-colors font-medium text-xs shadow-sm hover:opacity-90 active:scale-95" style={{ background: "#C8532A", color: "#FFF" }}>
+                    Open Folder
+                  </button>
+                  <button onClick={handleCreateProjectFolder} className="px-4 py-2 w-full rounded-xl transition-colors font-medium text-xs shadow-sm hover:opacity-90 active:scale-95" style={{ background: "transparent", color: "#C8532A", border: "1px solid #C8532A" }}>
+                    Create New Folder
+                  </button>
+                  <span style={{ fontSize: "10px", color: "#A08870", fontFamily: FONT }}>No folder opened.</span>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between px-2 mb-1 group">
+                    <div className="flex items-center gap-1 cursor-pointer transition-opacity hover:opacity-70" onClick={handleOpenFolder} title="Click to open a different folder">
+                      <FolderOpen style={{ width: "10px", height: "10px", color: "#C8532A" }} />
+                      <span
+                        style={{
+                          color: "#C8532A",
+                          fontSize: "10px",
+                          fontFamily: FONT,
+                          letterSpacing: "0.08em",
+                          textTransform: "uppercase",
+                          fontWeight: 600,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {currentDir?.split(/[/\\]/).pop() || "Project"}
+                      </span>
                     </div>
-                    {fileTree.length === 0 && !isCreatingItem ? (
-                      <div className="text-center py-4 opacity-60">
-                        <span style={{ fontSize: "10px", color: "#A08870", fontFamily: FONT }}>Folder is empty</span>
-                      </div>
-                    ) : (
-                      <>
-                        {isCreatingItem?.targetDir === currentDir && (
-                          <div
-                            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-xl mt-0.5"
-                            style={{ background: "#FAE5D8", border: "1px solid #F0C9B4" }}
+                    <div className="relative flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (createMenuOpen?.path === currentDir) {
+                            setCreateMenuOpen(null);
+                          } else {
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            setCreateMenuOpen({ path: currentDir!, x: rect.left, y: rect.bottom });
+                          }
+                        }}
+                        className="hover:bg-black/5 rounded-md p-0.5 transition-colors"
+                        style={{ color: "#A08870" }}
+                      >
+                        <Plus style={{ width: "12px", height: "12px" }} />
+                      </button>
+                      {createMenuOpen && (
+                        <div className="absolute top-full right-0 mt-1 w-32 rounded-lg shadow-lg py-1 z-50 overflow-hidden" style={{ background: "#FDFBF7", border: "1px solid #EAE0D5" }}>
+                          <button
+                            className="w-full text-left px-3 py-1.5 hover:bg-black/5 flex items-center gap-2 transition-colors"
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              handleCreateItemInit(false, createMenuOpen.path);
+                            }}
                           >
-                            {isCreatingItem.isDir ? (
-                              <FolderOpen style={{ width: "12px", height: "12px", color: "#C8532A", flexShrink: 0 }} />
-                            ) : (
-                              <FileText style={{ width: "12px", height: "12px", color: "#C8BEB0", flexShrink: 0 }} />
-                            )}
-                            <input
-                              autoFocus
-                              value={newItemName}
-                              onChange={(e) => setNewItemName(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                  handleCreateItemSubmit();
-                                } else if (e.key === "Escape") {
-                                  setIsCreatingItem(null);
-                                  setNewItemName("");
-                                }
-                              }}
-                              onBlur={() => {
-                                setTimeout(handleCreateItemSubmit, 100);
-                              }}
-                              className="bg-transparent border-none outline-none w-full"
-                              style={{
-                                fontSize: "12px",
-                                fontFamily: FONT,
-                                color: "#C8532A",
-                              }}
-                              placeholder={isCreatingItem.isDir ? "Folder name..." : "file.tex"}
-                            />
-                          </div>
-                        )}
-                        {(() => {
-                          const renderFileTree = (files: FileEntry[], depth = 0) => {
-                            return files.map((file) => {
-                              const isActive = activeTabPath === file.path;
-                              const isModified = openTabs.find((t) => t.path === file.path)?.modified;
-                              const isExpanded = expandedFolders.has(file.path);
-                              const isTargetDir = isCreatingItem?.targetDir === file.path;
+                            <FileText style={{ width: "12px", height: "12px", color: "#C8BEB0" }} />
+                            <span style={{ fontSize: "11px", color: "#7A6858", fontFamily: FONT }}>New File</span>
+                          </button>
+                          <button
+                            className="w-full text-left px-3 py-1.5 hover:bg-black/5 flex items-center gap-2 transition-colors"
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              handleCreateItemInit(true, createMenuOpen.path);
+                            }}
+                          >
+                            <FolderOpen style={{ width: "12px", height: "12px", color: "#C8532A" }} />
+                            <span style={{ fontSize: "11px", color: "#7A6858", fontFamily: FONT }}>New Folder</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  {fileTree.length === 0 && !isCreatingItem ? (
+                    <div className="text-center py-4 opacity-60">
+                      <span style={{ fontSize: "10px", color: "#A08870", fontFamily: FONT }}>Folder is empty</span>
+                    </div>
+                  ) : (
+                    <>
+                      {isCreatingItem?.targetDir === currentDir && (
+                        <div
+                          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-xl mt-0.5"
+                          style={{ background: "#FAE5D8", border: "1px solid #F0C9B4" }}
+                        >
+                          {isCreatingItem.isDir ? (
+                            <FolderOpen style={{ width: "12px", height: "12px", color: "#C8532A", flexShrink: 0 }} />
+                          ) : (
+                            <FileText style={{ width: "12px", height: "12px", color: "#C8BEB0", flexShrink: 0 }} />
+                          )}
+                          <input
+                            autoFocus
+                            value={newItemName}
+                            onChange={(e) => setNewItemName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                handleCreateItemSubmit();
+                              } else if (e.key === "Escape") {
+                                setIsCreatingItem(null);
+                                setNewItemName("");
+                              }
+                            }}
+                            onBlur={() => {
+                              setTimeout(handleCreateItemSubmit, 100);
+                            }}
+                            className="bg-transparent border-none outline-none w-full"
+                            style={{
+                              fontSize: "12px",
+                              fontFamily: FONT,
+                              color: "#C8532A",
+                            }}
+                            placeholder={isCreatingItem.isDir ? "Folder name..." : "file.tex"}
+                          />
+                        </div>
+                      )}
+                      {(() => {
+                        const renderFileTree = (files: FileEntry[], depth = 0) => {
+                          return files.map((file) => {
+                            const isActive = activeTabPath === file.path;
+                            const isModified = openTabs.find((t) => t.path === file.path)?.modified;
+                            const isExpanded = expandedFolders.has(file.path);
+                            const isTargetDir = isCreatingItem?.targetDir === file.path;
 
-                              return (
-                                <div key={file.path}>
-                                  <div
-                                    className="w-full flex items-center justify-between py-1 rounded-xl transition-all mt-0.5 group"
-                                    style={{
-                                      background: isActive ? "#FAE5D8" : "transparent",
-                                      border: isActive ? "1px solid #F0C9B4" : "1px solid transparent",
-                                      paddingLeft: `${8 + depth * 12}px`,
-                                      paddingRight: "8px",
-                                      cursor: "pointer",
-                                    }}
-                                    onClick={() => file.isDir ? handleToggleFolder(file) : handleOpenFile(file)}
-                                    onContextMenu={(e) => {
-                                      e.preventDefault();
-                                      e.stopPropagation();
-                                      setContextMenu({ x: e.clientX, y: e.clientY, file });
-                                    }}
-                                  >
-                                    <div className="flex items-center gap-2 overflow-hidden flex-1">
-                                      {file.isDir ? (
-                                        <div className="flex items-center gap-0.5 shrink-0">
-                                          {isExpanded ? (
-                                            <ChevronDown style={{ width: "12px", height: "12px", color: "#C8532A" }} />
-                                          ) : (
-                                            <ChevronRight style={{ width: "12px", height: "12px", color: "#C8BEB0" }} />
-                                          )}
-                                          <FolderOpen style={{ width: "12px", height: "12px", color: "#C8532A" }} />
-                                        </div>
-                                      ) : (
-                                        <div className="flex items-center gap-0.5 shrink-0 pl-3">
-                                          <FileText style={{ width: "12px", height: "12px", color: "#C8BEB0" }} />
-                                        </div>
-                                      )}
-
-                                      {renamingFile?.path === file.path ? (
-                                        <input
-                                          autoFocus
-                                          value={renameInput}
-                                          onChange={(e) => setRenameInput(e.target.value)}
-                                          onKeyDown={(e) => {
-                                            if (e.key === "Enter") handleRenameSubmit();
-                                            if (e.key === "Escape") setRenamingFile(null);
-                                          }}
-                                          onBlur={() => setTimeout(handleRenameSubmit, 150)}
-                                          onClick={(e) => e.stopPropagation()}
-                                          className="bg-transparent border-none outline-none w-full"
-                                          style={{ fontSize: "12px", fontFamily: FONT, color: "#C8532A" }}
-                                        />
-                                      ) : (
-                                        <span
-                                          style={{
-                                            fontSize: "12px",
-                                            fontFamily: FONT,
-                                            color: isActive ? "#C8532A" : isModified ? "#D4800A" : "#7A6858",
-                                            overflow: "hidden",
-                                            textOverflow: "ellipsis",
-                                            whiteSpace: "nowrap",
-                                          }}
-                                        >
-                                          {file.name}
-                                        </span>
-                                      )}
-                                    </div>
-
-                                    {file.isDir && (
-                                      <div className="relative opacity-0 group-hover:opacity-100 transition-opacity flex items-center shrink-0">
-                                        <button
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            if (createMenuOpen?.path === file.path) {
-                                              setCreateMenuOpen(null);
-                                            } else {
-                                              const rect = e.currentTarget.getBoundingClientRect();
-                                              setCreateMenuOpen({ path: file.path, x: rect.left, y: rect.bottom });
-                                            }
-                                          }}
-                                          className="hover:bg-black/5 rounded-md p-0.5"
-                                        >
-                                          <Plus style={{ width: "12px", height: "12px", color: "#A08870" }} />
-                                        </button>
+                            return (
+                              <div key={file.path}>
+                                <div
+                                  className="w-full flex items-center justify-between py-1 rounded-xl transition-all mt-0.5 group"
+                                  style={{
+                                    background: isActive ? "#FAE5D8" : "transparent",
+                                    border: isActive ? "1px solid #F0C9B4" : "1px solid transparent",
+                                    paddingLeft: `${8 + depth * 12}px`,
+                                    paddingRight: "8px",
+                                    cursor: "pointer",
+                                  }}
+                                  onClick={() => file.isDir ? handleToggleFolder(file) : handleOpenFile(file)}
+                                  onContextMenu={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    setContextMenu({ x: e.clientX, y: e.clientY, file });
+                                  }}
+                                >
+                                  <div className="flex items-center gap-2 overflow-hidden flex-1">
+                                    {file.isDir ? (
+                                      <div className="flex items-center gap-0.5 shrink-0">
+                                        {isExpanded ? (
+                                          <ChevronDown style={{ width: "12px", height: "12px", color: "#C8532A" }} />
+                                        ) : (
+                                          <ChevronRight style={{ width: "12px", height: "12px", color: "#C8BEB0" }} />
+                                        )}
+                                        <FolderOpen style={{ width: "12px", height: "12px", color: "#C8532A" }} />
                                       </div>
+                                    ) : (
+                                      <div className="flex items-center gap-0.5 shrink-0 pl-3">
+                                        <FileText style={{ width: "12px", height: "12px", color: "#C8BEB0" }} />
+                                      </div>
+                                    )}
+
+                                    {renamingFile?.path === file.path ? (
+                                      <input
+                                        autoFocus
+                                        value={renameInput}
+                                        onChange={(e) => setRenameInput(e.target.value)}
+                                        onKeyDown={(e) => {
+                                          if (e.key === "Enter") handleRenameSubmit();
+                                          if (e.key === "Escape") setRenamingFile(null);
+                                        }}
+                                        onBlur={() => setTimeout(handleRenameSubmit, 150)}
+                                        onClick={(e) => e.stopPropagation()}
+                                        className="bg-transparent border-none outline-none w-full"
+                                        style={{ fontSize: "12px", fontFamily: FONT, color: "#C8532A" }}
+                                      />
+                                    ) : (
+                                      <span
+                                        style={{
+                                          fontSize: "12px",
+                                          fontFamily: FONT,
+                                          color: isActive ? "#C8532A" : isModified ? "#D4800A" : "#7A6858",
+                                          overflow: "hidden",
+                                          textOverflow: "ellipsis",
+                                          whiteSpace: "nowrap",
+                                        }}
+                                      >
+                                        {file.name}
+                                      </span>
                                     )}
                                   </div>
 
-                                  {/* Inline create input if creating in this dir */}
-                                  {isTargetDir && (
-                                    <div
-                                      className="w-full flex items-center gap-1.5 py-1.5 rounded-xl mt-0.5"
-                                      style={{ background: "#FAE5D8", border: "1px solid #F0C9B4", paddingLeft: `${8 + (depth + 1) * 12}px`, paddingRight: "8px" }}
-                                    >
-                                      {isCreatingItem.isDir ? (
-                                        <div className="flex items-center gap-0.5 shrink-0 pl-3">
-                                          <FolderOpen style={{ width: "12px", height: "12px", color: "#C8532A" }} />
-                                        </div>
-                                      ) : (
-                                        <div className="flex items-center gap-0.5 shrink-0 pl-3">
-                                          <FileText style={{ width: "12px", height: "12px", color: "#C8BEB0" }} />
-                                        </div>
-                                      )}
-                                      <input
-                                        autoFocus
-                                        value={newItemName}
-                                        onChange={(e) => setNewItemName(e.target.value)}
-                                        onKeyDown={(e) => {
-                                          if (e.key === "Enter") handleCreateItemSubmit();
-                                          else if (e.key === "Escape") { setIsCreatingItem(null); setNewItemName(""); }
+                                  {file.isDir && (
+                                    <div className="relative opacity-0 group-hover:opacity-100 transition-opacity flex items-center shrink-0">
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          if (createMenuOpen?.path === file.path) {
+                                            setCreateMenuOpen(null);
+                                          } else {
+                                            const rect = e.currentTarget.getBoundingClientRect();
+                                            setCreateMenuOpen({ path: file.path, x: rect.left, y: rect.bottom });
+                                          }
                                         }}
-                                        onBlur={() => setTimeout(handleCreateItemSubmit, 150)}
-                                        className="bg-transparent border-none outline-none w-full"
-                                        style={{ fontSize: "12px", fontFamily: FONT, color: "#C8532A" }}
-                                        placeholder={isCreatingItem.isDir ? "Folder name..." : "file.tex"}
-                                      />
-                                    </div>
-                                  )}
-
-                                  {/* Render children if expanded */}
-                                  {file.isDir && isExpanded && folderContents[file.path] && (
-                                    <div>
-                                      {renderFileTree(folderContents[file.path], depth + 1)}
+                                        className="hover:bg-black/5 rounded-md p-0.5"
+                                      >
+                                        <Plus style={{ width: "12px", height: "12px", color: "#A08870" }} />
+                                      </button>
                                     </div>
                                   )}
                                 </div>
-                              );
-                            });
-                          };
 
-                          return renderFileTree(fileTree, 0);
-                        })()}
-                      </>
-                    )}
-                  </>
-                )}
+                                {/* Inline create input if creating in this dir */}
+                                {isTargetDir && (
+                                  <div
+                                    className="w-full flex items-center gap-1.5 py-1.5 rounded-xl mt-0.5"
+                                    style={{ background: "#FAE5D8", border: "1px solid #F0C9B4", paddingLeft: `${8 + (depth + 1) * 12}px`, paddingRight: "8px" }}
+                                  >
+                                    {isCreatingItem.isDir ? (
+                                      <div className="flex items-center gap-0.5 shrink-0 pl-3">
+                                        <FolderOpen style={{ width: "12px", height: "12px", color: "#C8532A" }} />
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-center gap-0.5 shrink-0 pl-3">
+                                        <FileText style={{ width: "12px", height: "12px", color: "#C8BEB0" }} />
+                                      </div>
+                                    )}
+                                    <input
+                                      autoFocus
+                                      value={newItemName}
+                                      onChange={(e) => setNewItemName(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter") handleCreateItemSubmit();
+                                        else if (e.key === "Escape") { setIsCreatingItem(null); setNewItemName(""); }
+                                      }}
+                                      onBlur={() => setTimeout(handleCreateItemSubmit, 150)}
+                                      className="bg-transparent border-none outline-none w-full"
+                                      style={{ fontSize: "12px", fontFamily: FONT, color: "#C8532A" }}
+                                      placeholder={isCreatingItem.isDir ? "Folder name..." : "file.tex"}
+                                    />
+                                  </div>
+                                )}
 
-                {/* Custom Create Menu */}
-                {createMenuOpen && (
-                  <div
-                    className="fixed rounded-lg shadow-lg py-1 z-50 flex flex-col min-w-[140px]"
-                    style={{
-                      background: "#FDFBF7",
-                      border: "1px solid #EAE0D5",
-                      left: Math.min(createMenuOpen.x, window.innerWidth - 150),
-                      top: Math.min(createMenuOpen.y + 4, window.innerHeight - 80),
-                      boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
-                    }}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <button
-                      className="w-full text-left px-3 py-1.5 hover:bg-black/5 flex items-center gap-2 transition-colors"
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        handleCreateItemInit(false, createMenuOpen.path);
-                      }}
-                    >
-                      <FileText style={{ width: "12px", height: "12px", color: "#C8BEB0" }} />
-                      <span style={{ fontSize: "11px", color: "#7A6858", fontFamily: FONT }}>New File</span>
-                    </button>
-                    <button
-                      className="w-full text-left px-3 py-1.5 hover:bg-black/5 flex items-center gap-2 transition-colors"
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        handleCreateItemInit(true, createMenuOpen.path);
-                      }}
-                    >
-                      <FolderOpen style={{ width: "12px", height: "12px", color: "#C8532A" }} />
-                      <span style={{ fontSize: "11px", color: "#7A6858", fontFamily: FONT }}>New Folder</span>
-                    </button>
-                  </div>
-                )}
+                                {/* Render children if expanded */}
+                                {file.isDir && isExpanded && folderContents[file.path] && (
+                                  <div>
+                                    {renderFileTree(folderContents[file.path], depth + 1)}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          });
+                        };
 
-                {/* Custom Context Menu */}
-                {contextMenu && (
-                  <div
-                    className="fixed rounded-lg shadow-lg py-1 z-50 flex flex-col min-w-[140px]"
-                    style={{
-                      background: "#FDFBF7",
-                      border: "1px solid #EAE0D5",
-                      left: Math.min(contextMenu.x, window.innerWidth - 150),
-                      top: Math.min(contextMenu.y, window.innerHeight - 80),
-                      boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
-                    }}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <button
-                      className="w-full text-left px-3 py-1.5 hover:bg-black/5 flex items-center gap-2 transition-colors"
-                      onClick={() => {
-                        setRenamingFile(contextMenu.file);
-                        setRenameInput(contextMenu.file.name);
-                        setContextMenu(null);
-                      }}
-                    >
-                      <Edit2 style={{ width: "12px", height: "12px", color: "#7A6858" }} />
-                      <span style={{ fontSize: "11px", color: "#3C2A18", fontFamily: FONT }}>Rename</span>
-                    </button>
-                    <button
-                      className="w-full text-left px-3 py-1.5 hover:bg-red-50 flex items-center gap-2 transition-colors"
-                      onClick={() => {
-                        setContextMenu(null);
-                        handleDeleteItem(contextMenu.file);
-                      }}
-                    >
-                      <Trash2 style={{ width: "12px", height: "12px", color: "#E03E3E" }} />
-                      <span style={{ fontSize: "11px", color: "#E03E3E", fontFamily: FONT }}>Delete</span>
-                    </button>
-                  </div>
-                )}
-              </div>
+                        return renderFileTree(fileTree, 0);
+                      })()}
+                    </>
+                  )}
+                </>
+              )}
 
-              {/* Upload Image — Overleaf-style drop zone */}
-              <div className="px-2 pb-2">
-                <div className="flex items-center gap-1 px-2 mb-1.5">
-                  <span
-                    style={{
-                      color: "#A08870",
-                      fontSize: "10px",
-                      fontFamily: FONT,
-                      letterSpacing: "0.08em",
-                      textTransform: "uppercase",
-                      fontWeight: 600,
-                    }}
-                  >
-                    Upload
-                  </span>
-                </div>
+              {/* Custom Create Menu */}
+              {createMenuOpen && (
                 <div
-                  className="rounded-2xl flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all"
-                  onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-                  onDragLeave={() => setDragOver(false)}
-                  onDrop={handleDrop}
-                  onClick={() => fileInputRef.current?.click()}
+                  className="fixed rounded-lg shadow-lg py-1 z-50 flex flex-col min-w-[140px]"
                   style={{
-                    height: "72px",
-                    background: dragOver ? "#FAE5D8" : "#FDFAF6",
-                    border: `1.5px dashed ${dragOver ? "#C8532A" : "#DED3C4"}`,
+                    background: "#FDFBF7",
+                    border: "1px solid #EAE0D5",
+                    left: Math.min(createMenuOpen.x, window.innerWidth - 150),
+                    top: Math.min(createMenuOpen.y + 4, window.innerHeight - 80),
+                    boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <button
+                    className="w-full text-left px-3 py-1.5 hover:bg-black/5 flex items-center gap-2 transition-colors"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      handleCreateItemInit(false, createMenuOpen.path);
+                    }}
+                  >
+                    <FileText style={{ width: "12px", height: "12px", color: "#C8BEB0" }} />
+                    <span style={{ fontSize: "11px", color: "#7A6858", fontFamily: FONT }}>New File</span>
+                  </button>
+                  <button
+                    className="w-full text-left px-3 py-1.5 hover:bg-black/5 flex items-center gap-2 transition-colors"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      handleCreateItemInit(true, createMenuOpen.path);
+                    }}
+                  >
+                    <FolderOpen style={{ width: "12px", height: "12px", color: "#C8532A" }} />
+                    <span style={{ fontSize: "11px", color: "#7A6858", fontFamily: FONT }}>New Folder</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Custom Context Menu */}
+              {contextMenu && (
+                <div
+                  className="fixed rounded-lg shadow-lg py-1 z-50 flex flex-col min-w-[140px]"
+                  style={{
+                    background: "#FDFBF7",
+                    border: "1px solid #EAE0D5",
+                    left: Math.min(contextMenu.x, window.innerWidth - 150),
+                    top: Math.min(contextMenu.y, window.innerHeight - 80),
+                    boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <button
+                    className="w-full text-left px-3 py-1.5 hover:bg-black/5 flex items-center gap-2 transition-colors"
+                    onClick={() => {
+                      setRenamingFile(contextMenu.file);
+                      setRenameInput(contextMenu.file.name);
+                      setContextMenu(null);
+                    }}
+                  >
+                    <Edit2 style={{ width: "12px", height: "12px", color: "#7A6858" }} />
+                    <span style={{ fontSize: "11px", color: "#3C2A18", fontFamily: FONT }}>Rename</span>
+                  </button>
+                  <button
+                    className="w-full text-left px-3 py-1.5 hover:bg-red-50 flex items-center gap-2 transition-colors"
+                    onClick={() => {
+                      setContextMenu(null);
+                      handleDeleteItem(contextMenu.file);
+                    }}
+                  >
+                    <Trash2 style={{ width: "12px", height: "12px", color: "#E03E3E" }} />
+                    <span style={{ fontSize: "11px", color: "#E03E3E", fontFamily: FONT }}>Delete</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Upload Image — Overleaf-style drop zone */}
+            <div className="px-2 pb-2">
+              <div className="flex items-center gap-1 px-2 mb-1.5">
+                <span
+                  style={{
+                    color: "#A08870",
+                    fontSize: "10px",
+                    fontFamily: FONT,
+                    letterSpacing: "0.08em",
+                    textTransform: "uppercase",
+                    fontWeight: 600,
+                  }}
+                >
+                  Upload
+                </span>
+              </div>
+              <div
+                className="rounded-2xl flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all"
+                onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={handleDrop}
+                onClick={() => fileInputRef.current?.click()}
+                style={{
+                  height: "72px",
+                  background: dragOver ? "#FAE5D8" : "#FDFAF6",
+                  border: `1.5px dashed ${dragOver ? "#C8532A" : "#DED3C4"}`,
+                  transition: "all 0.2s ease",
+                }}
+              >
+                <div
+                  className="rounded-xl flex items-center justify-center"
+                  style={{
+                    width: "28px",
+                    height: "28px",
+                    background: dragOver ? "#F0C9B4" : "#F5EDE3",
+                    border: `1px solid ${dragOver ? "#C8532A" : "#E4D9CC"}`,
                     transition: "all 0.2s ease",
                   }}
                 >
-                  <div
-                    className="rounded-xl flex items-center justify-center"
+                  <ImagePlus
                     style={{
-                      width: "28px",
-                      height: "28px",
-                      background: dragOver ? "#F0C9B4" : "#F5EDE3",
-                      border: `1px solid ${dragOver ? "#C8532A" : "#E4D9CC"}`,
-                      transition: "all 0.2s ease",
-                    }}
-                  >
-                    <ImagePlus
-                      style={{
-                        width: "13px",
-                        height: "13px",
-                        color: dragOver ? "#C8532A" : "#C8BEB0",
-                        transition: "color 0.2s",
-                      }}
-                    />
-                  </div>
-                  <span
-                    style={{
-                      fontSize: "10px",
-                      fontFamily: FONT,
-                      color: dragOver ? "#C8532A" : "#B5A08A",
-                      fontWeight: dragOver ? 500 : 400,
-                    }}
-                  >
-                    {dragOver ? "Drop to import" : "Drop image or file"}
-                  </span>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*,.pdf,.tex,.bib"
-                    multiple
-                    className="hidden"
-                    onChange={(e) => {
-                      const files = Array.from(e.target.files || []);
-                      handleFileUploads(files);
-                      // Reset input so the same file can be uploaded again
-                      if (fileInputRef.current) fileInputRef.current.value = "";
+                      width: "13px",
+                      height: "13px",
+                      color: dragOver ? "#C8532A" : "#C8BEB0",
+                      transition: "color 0.2s",
                     }}
                   />
                 </div>
-                {uploadedFiles.length > 0 && (
-                  <div className="mt-1.5 flex flex-col gap-1">
-                    {uploadedFiles.map((uf) => (
-                      <div
-                        key={uf.id}
-                        className="flex flex-col gap-1 px-2 py-1.5 rounded-xl"
-                        style={{
-                          background: uf.status === "error" ? "#FEF2F2" : (uf.status === "uploading" ? "#F5EDE3" : "#DDF2E8"),
-                          border: `1px solid ${uf.status === "error" ? "#FCA5A5" : (uf.status === "uploading" ? "#E4D9CC" : "#BDE5CF")}`
-                        }}
-                      >
-                        <div className="flex items-center gap-2">
-                          {uf.status === "success" && <CheckCircle style={{ width: "10px", height: "10px", color: "#3D9A6A" }} />}
-                          {uf.status === "uploading" && <Loader2 className="animate-spin" style={{ width: "10px", height: "10px", color: "#A08870" }} />}
-                          {uf.status === "error" && <AlertTriangle style={{ width: "10px", height: "10px", color: "#EF4444" }} />}
-                          <span style={{
-                            fontSize: "10px",
-                            fontFamily: MONO,
-                            color: uf.status === "error" ? "#991B1B" : (uf.status === "uploading" ? "#7A6858" : "#2E7D52"),
-                            whiteSpace: "nowrap",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis"
-                          }}>
-                            {uf.name}
-                          </span>
-                        </div>
-                        {uf.error && (
-                          <span style={{ fontSize: "9px", fontFamily: FONT, color: "#DC2626", marginLeft: "18px", lineHeight: 1.2 }}>
-                            {uf.error}
-                          </span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* ────── VERSION CONTROL TAB ────── */}
-          {sidebarTab === "vcs" && (
-            <div className="flex flex-col h-full py-2 px-2">
-              {/* Branch badge */}
-              <div
-                className="flex items-center gap-2 px-3 py-2 rounded-xl mb-3"
-                style={{
-                  background: "#FAE5D8",
-                  border: "1.5px solid #F0C9B4",
-                }}
-              >
-                <GitBranch style={{ width: "12px", height: "12px", color: "#C8532A" }} />
-                <span style={{ fontSize: "12px", fontFamily: FONT, fontWeight: 500, color: "#C8532A" }}>
-                  main
-                </span>
-                <span style={{ fontSize: "10px", fontFamily: FONT, color: "#B5A08A", marginLeft: "auto" }}>
-                  ↑ 0 ↓ 0
-                </span>
-              </div>
-
-              {/* Changed files */}
-              <div className="mb-3">
-                <div className="flex items-center gap-1 px-2 mb-1.5">
-                  <span
-                    style={{
-                      color: "#A08870",
-                      fontSize: "10px",
-                      fontFamily: FONT,
-                      letterSpacing: "0.08em",
-                      textTransform: "uppercase",
-                      fontWeight: 600,
-                    }}
-                  >
-                    Changes ({changedFiles.length})
-                  </span>
-                </div>
-                <div
-                  className="rounded-xl overflow-hidden"
-                  style={{ background: "#FDFAF6", border: "1px solid #E8DDD0" }}
+                <span
+                  style={{
+                    fontSize: "10px",
+                    fontFamily: FONT,
+                    color: dragOver ? "#C8532A" : "#B5A08A",
+                    fontWeight: dragOver ? 500 : 400,
+                  }}
                 >
-                  {changedFiles.map((file, i) => (
+                  {dragOver ? "Drop to import" : "Drop image or file"}
+                </span>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*,.pdf,.tex,.bib"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files || []);
+                    handleFileUploads(files);
+                    // Reset input so the same file can be uploaded again
+                    if (fileInputRef.current) fileInputRef.current.value = "";
+                  }}
+                />
+              </div>
+              {uploadedFiles.length > 0 && (
+                <div className="mt-1.5 flex flex-col gap-1">
+                  {uploadedFiles.map((uf) => (
                     <div
-                      key={file.name}
-                      className="flex items-center gap-2 px-3 py-1.5 hover:bg-white/60 transition-colors cursor-pointer"
-                      style={{ borderBottom: i < changedFiles.length - 1 ? "1px solid #F0E9DF" : "none" }}
+                      key={uf.id}
+                      className="flex flex-col gap-1 px-2 py-1.5 rounded-xl"
+                      style={{
+                        background: uf.status === "error" ? "#FEF2F2" : (uf.status === "uploading" ? "#F5EDE3" : "#DDF2E8"),
+                        border: `1px solid ${uf.status === "error" ? "#FCA5A5" : (uf.status === "uploading" ? "#E4D9CC" : "#BDE5CF")}`
+                      }}
                     >
-                      <span
-                        style={{
-                          fontSize: "9px",
+                      <div className="flex items-center gap-2">
+                        {uf.status === "success" && <CheckCircle style={{ width: "10px", height: "10px", color: "#3D9A6A" }} />}
+                        {uf.status === "uploading" && <Loader2 className="animate-spin" style={{ width: "10px", height: "10px", color: "#A08870" }} />}
+                        {uf.status === "error" && <AlertTriangle style={{ width: "10px", height: "10px", color: "#EF4444" }} />}
+                        <span style={{
+                          fontSize: "10px",
                           fontFamily: MONO,
-                          fontWeight: 600,
-                          color: file.color,
-                          width: "14px",
-                          textAlign: "center",
-                        }}
-                      >
-                        {file.status}
-                      </span>
-                      <span
-                        style={{
-                          fontSize: "11px",
-                          fontFamily: FONT,
-                          color: "#7A6858",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
+                          color: uf.status === "error" ? "#991B1B" : (uf.status === "uploading" ? "#7A6858" : "#2E7D52"),
                           whiteSpace: "nowrap",
-                        }}
-                      >
-                        {file.name}
-                      </span>
+                          overflow: "hidden",
+                          textOverflow: "ellipsis"
+                        }}>
+                          {uf.name}
+                        </span>
+                      </div>
+                      {uf.error && (
+                        <span style={{ fontSize: "9px", fontFamily: FONT, color: "#DC2626", marginLeft: "18px", lineHeight: 1.2 }}>
+                          {uf.error}
+                        </span>
+                      )}
                     </div>
                   ))}
                 </div>
-              </div>
-
-              {/* Commit button placeholder */}
-              <button
-                className="flex items-center justify-center gap-2 px-3 py-2 rounded-xl transition-all mb-3"
-                style={{
-                  background: "#FAE5D8",
-                  border: "1.5px solid #F0C9B4",
-                  color: "#C8532A",
-                  fontSize: "12px",
-                  fontFamily: FONT,
-                  fontWeight: 500,
-                }}
-              >
-                <Upload style={{ width: "11px", height: "11px" }} />
-                Commit & Push
-              </button>
-
-              {/* Recent commits */}
-              <div>
-                <div className="flex items-center gap-1 px-2 mb-1.5">
-                  <span
-                    style={{
-                      color: "#A08870",
-                      fontSize: "10px",
-                      fontFamily: FONT,
-                      letterSpacing: "0.08em",
-                      textTransform: "uppercase",
-                      fontWeight: 600,
-                    }}
-                  >
-                    Recent Commits
-                  </span>
-                </div>
-                {recentCommits.map((commit) => (
-                  <div
-                    key={commit.hash}
-                    className="flex items-start gap-2 px-2 py-1.5 rounded-lg hover:bg-black/5 transition-colors cursor-pointer"
-                  >
-                    <GitCommit style={{ width: "11px", height: "11px", color: "#C8BEB0", marginTop: "2px", flexShrink: 0 }} />
-                    <div className="flex-1 min-w-0">
-                      <p
-                        style={{
-                          fontSize: "11px",
-                          fontFamily: FONT,
-                          color: "#7A6858",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                          lineHeight: 1.3,
-                        }}
-                      >
-                        {commit.message}
-                      </p>
-                      <p style={{ fontSize: "9px", fontFamily: FONT, color: "#C8BEB0" }}>
-                        {commit.hash} · {commit.date}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
+              )}
             </div>
-          )}
+          </div>
+
+
         </div>
       </div>
 
@@ -1779,7 +1583,7 @@ export function EditorScreen() {
                       lineHeight: 1.5,
                       border: "1px solid #5C4A38",
                     }}
-                    onMouseEnter={() => {/* keep open */}}
+                    onMouseEnter={() => {/* keep open */ }}
                     onMouseLeave={() => setHoveredDiag(null)}
                   >
                     <div style={{ marginBottom: "6px" }}>{hoveredDiag.diag.message}</div>
@@ -1856,6 +1660,45 @@ export function EditorScreen() {
                     overflowY: "auto",
                   }}
                 />
+
+                {/* Empty-state logo overlay — shown when no file is open */}
+                {!activeTabPath && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      pointerEvents: "none",
+                      zIndex: 3,
+                    }}
+                  >
+                    <img
+                      src={logoSrc}
+                      alt="L'TeXch logo"
+                      draggable={false}
+                      style={{
+                        width: "96px",
+                        height: "96px",
+                        opacity: 0.75,
+                        userSelect: "none",
+                      }}
+                    />
+                    <span
+                      style={{
+                        marginTop: "14px",
+                        fontSize: "12px",
+                        fontFamily: FONT,
+                        color: "#C8BEB0",
+                        letterSpacing: "0.04em",
+                      }}
+                    >
+                      Open a file to start editing
+                    </span>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1966,11 +1809,11 @@ export function EditorScreen() {
               )} */}
               <div className="flex-1" />
               {!compiling && (compiled || lastCompileError) && (
-                <span style={{ 
-                  fontSize: "11px", 
-                  fontFamily: FONT, 
-                  color: compiled ? "#3D9A6A" : "#DC2626", 
-                  fontWeight: 500 
+                <span style={{
+                  fontSize: "11px",
+                  fontFamily: FONT,
+                  color: compiled ? "#3D9A6A" : "#DC2626",
+                  fontWeight: 500
                 }}>
                   {compiled ? "✓ Build successful" : "✗ Build failed"} — {compileTime.toFixed(2)}s
                 </span>
@@ -1979,6 +1822,6 @@ export function EditorScreen() {
           </div>
         </div>
       </div>
-    </div>
+    </div >
   );
 }
