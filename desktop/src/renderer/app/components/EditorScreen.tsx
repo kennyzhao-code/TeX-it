@@ -1,5 +1,4 @@
-import { useState } from "react";
-import { useNavigate } from "react-router";
+import { useState, useRef } from "react";
 import {
   FileText,
   X,
@@ -15,6 +14,12 @@ import {
   Plus,
   BookOpen,
   Maximize2,
+  ImagePlus,
+  GitBranch,
+  GitCommit,
+  Upload,
+  Image,
+  File,
 } from "lucide-react";
 
 const FONT = "'NaN Jaune', 'Plus Jakarta Sans', -apple-system, sans-serif";
@@ -125,13 +130,55 @@ function tokenizeLatex(code: string): Token[] {
   return tokens;
 }
 
+/* ─────────── File tree data ─────────── */
+type FileEntry = {
+  name: string;
+  active?: boolean;
+  modified?: boolean;
+  isDir?: boolean;
+};
+
+const fileTree: FileEntry[] = [
+  { name: "thesis_main.tex", active: true, modified: true },
+  { name: "chapter_01.tex", active: false, modified: false },
+  { name: "chapter_02.tex", active: false, modified: false },
+  { name: "chapter_03.tex", active: false, modified: true },
+  { name: "bibliography.bib", active: false, modified: true },
+  { name: "figures/", isDir: true },
+  { name: "appendix.tex", active: false, modified: false },
+];
+
+/* ─────────── Assets data ─────────── */
+const assetFiles: { name: string; type: string }[] = [
+  { name: "diagram_01.png", type: "image" },
+  { name: "graph_results.svg", type: "image" },
+  { name: "logo.pdf", type: "pdf" },
+];
+
+/* ─────────── Git data for Version Control tab ─────────── */
+const changedFiles = [
+  { name: "thesis_main.tex", status: "M" as const, color: "#D4800A" },
+  { name: "chapter_03.tex", status: "M" as const, color: "#D4800A" },
+  { name: "bibliography.bib", status: "M" as const, color: "#D4800A" },
+  { name: "figures/diagram_01.png", status: "A" as const, color: "#3D9A6A" },
+];
+
+const recentCommits = [
+  { hash: "a4f2c8e", message: "Fix equation numbering in Ch. 3", date: "2h ago" },
+  { hash: "9d31b7f", message: "Add bibliography entries", date: "Yesterday" },
+  { hash: "e82a1c4", message: "Restructure introduction", date: "3 days ago" },
+];
+
 export function EditorScreen() {
-  const navigate = useNavigate();
   const [code] = useState(SAMPLE_LATEX);
   const [activeTab, setActiveTab] = useState("thesis_main.tex");
   const [zoom, setZoom] = useState(100);
   const [compiling, setCompiling] = useState(false);
   const [compiled, setCompiled] = useState(true);
+  const [sidebarTab, setSidebarTab] = useState<"files" | "vcs">("files");
+  const [dragOver, setDragOver] = useState(false);
+  const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const openTabs = [
     { name: "thesis_main.tex", modified: true },
@@ -147,95 +194,406 @@ export function EditorScreen() {
     setTimeout(() => { setCompiling(false); setCompiled(true); }, 1400);
   };
 
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length) setUploadedFiles((p) => [...p, ...files.map((f) => f.name)]);
+  };
+
   return (
     <div className="flex h-full overflow-hidden" style={{ background: "#F9F3EC" }}>
-      {/* File Sidebar */}
+      {/* ═══════════════ LEFT SIDEBAR ═══════════════ */}
       <div
         className="flex flex-col shrink-0"
         style={{
-          width: "196px",
+          width: "210px",
           background: "#F2EBE1",
           borderRight: "1px solid #E4D9CC",
         }}
       >
+        {/* Sidebar header with pill toggle */}
         <div
           className="px-3 py-2 flex items-center justify-between"
           style={{ borderBottom: "1px solid #E4D9CC" }}
         >
-          <span
-            style={{
-              color: "#A08870",
-              fontSize: "10px",
-              fontFamily: FONT,
-              letterSpacing: "0.1em",
-              textTransform: "uppercase",
-              fontWeight: 600,
-            }}
+          {/* Files / Version Control pill toggle */}
+          <div
+            className="flex items-center p-0.5 rounded-xl gap-0.5"
+            style={{ background: "#E8DDD0", border: "1px solid #DED3C4" }}
           >
-            Explorer
-          </span>
+            {([
+              { id: "files" as const, label: "Files" },
+              { id: "vcs" as const, label: "VCS" },
+            ]).map(({ id, label }) => {
+              const isActive = sidebarTab === id;
+              return (
+                <button
+                  key={id}
+                  onClick={() => setSidebarTab(id)}
+                  className="flex items-center gap-1.5 rounded-lg transition-all"
+                  style={{
+                    padding: "3px 10px",
+                    background: isActive ? "#FFFFFF" : "transparent",
+                    color: isActive ? "#C8532A" : "#A08870",
+                    fontSize: "10px",
+                    fontFamily: FONT,
+                    fontWeight: isActive ? 600 : 400,
+                    letterSpacing: "0.04em",
+                    textTransform: "uppercase",
+                    boxShadow: isActive
+                      ? "0 1px 3px rgba(44,31,18,0.10)"
+                      : "none",
+                    transition: "all 0.15s ease",
+                  }}
+                >
+                  {id === "vcs" && (
+                    <GitBranch style={{ width: "10px", height: "10px", flexShrink: 0 }} />
+                  )}
+                  {label}
+                </button>
+              );
+            })}
+          </div>
           <button className="hover:bg-black/5 rounded-lg p-0.5 transition-colors" style={{ color: "#A08870" }}>
             <Plus style={{ width: "12px", height: "12px" }} />
           </button>
         </div>
-        <div className="overflow-auto flex-1 py-2 px-2">
-          <div className="flex items-center gap-1 px-2 mb-1">
-            <ChevronDown style={{ width: "10px", height: "10px", color: "#C8532A" }} />
-            <span
-              style={{
-                color: "#C8532A",
-                fontSize: "10px",
-                fontFamily: FONT,
-                letterSpacing: "0.08em",
-                textTransform: "uppercase",
-                fontWeight: 600,
-              }}
-            >
-              Thesis Project
-            </span>
-          </div>
-          {[
-            { name: "thesis_main.tex", active: true, modified: true },
-            { name: "chapter_01.tex", active: false, modified: false },
-            { name: "chapter_02.tex", active: false, modified: false },
-            { name: "chapter_03.tex", active: false, modified: true },
-            { name: "bibliography.bib", active: false, modified: true },
-            { name: "figures/", isDir: true },
-            { name: "appendix.tex", active: false, modified: false },
-          ].map((file) => (
-            <button
-              key={file.name}
-              className="w-full flex items-center gap-2 px-2 py-1 rounded-xl transition-all text-left"
-              style={{
-                background: file.active ? "#FAE5D8" : "transparent",
-                border: file.active ? "1px solid #F0C9B4" : "1px solid transparent",
-              }}
-            >
-              {file.isDir ? (
-                <FolderOpen style={{ width: "12px", height: "12px", color: "#C8532A", flexShrink: 0 }} />
-              ) : (
-                <FileText style={{ width: "12px", height: "12px", color: "#C8BEB0", flexShrink: 0 }} />
-              )}
-              <span
+
+        {/* Sidebar content area */}
+        <div className="overflow-auto flex-1">
+          {/* ────── FILES TAB ────── */}
+          {sidebarTab === "files" && (
+            <div className="flex flex-col h-full">
+              {/* File tree */}
+              <div className="py-2 px-2 flex-1">
+                <div className="flex items-center gap-1 px-2 mb-1">
+                  <ChevronDown style={{ width: "10px", height: "10px", color: "#C8532A" }} />
+                  <span
+                    style={{
+                      color: "#C8532A",
+                      fontSize: "10px",
+                      fontFamily: FONT,
+                      letterSpacing: "0.08em",
+                      textTransform: "uppercase",
+                      fontWeight: 600,
+                    }}
+                  >
+                    Thesis Project
+                  </span>
+                </div>
+                {fileTree.map((file) => (
+                  <button
+                    key={file.name}
+                    className="w-full flex items-center gap-2 px-2 py-1 rounded-xl transition-all text-left"
+                    style={{
+                      background: file.active ? "#FAE5D8" : "transparent",
+                      border: file.active ? "1px solid #F0C9B4" : "1px solid transparent",
+                    }}
+                  >
+                    {file.isDir ? (
+                      <FolderOpen style={{ width: "12px", height: "12px", color: "#C8532A", flexShrink: 0 }} />
+                    ) : (
+                      <FileText style={{ width: "12px", height: "12px", color: "#C8BEB0", flexShrink: 0 }} />
+                    )}
+                    <span
+                      style={{
+                        fontSize: "12px",
+                        fontFamily: FONT,
+                        color: file.active ? "#C8532A" : file.modified ? "#D4800A" : "#7A6858",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {file.name}
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Upload Image — Overleaf-style drop zone */}
+              <div className="px-2 pb-2">
+                <div className="flex items-center gap-1 px-2 mb-1.5">
+                  <span
+                    style={{
+                      color: "#A08870",
+                      fontSize: "10px",
+                      fontFamily: FONT,
+                      letterSpacing: "0.08em",
+                      textTransform: "uppercase",
+                      fontWeight: 600,
+                    }}
+                  >
+                    Upload
+                  </span>
+                </div>
+                <div
+                  className="rounded-2xl flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all"
+                  onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                  onDragLeave={() => setDragOver(false)}
+                  onDrop={handleDrop}
+                  onClick={() => fileInputRef.current?.click()}
+                  style={{
+                    height: "72px",
+                    background: dragOver ? "#FAE5D8" : "#FDFAF6",
+                    border: `1.5px dashed ${dragOver ? "#C8532A" : "#DED3C4"}`,
+                    transition: "all 0.2s ease",
+                  }}
+                >
+                  <div
+                    className="rounded-xl flex items-center justify-center"
+                    style={{
+                      width: "28px",
+                      height: "28px",
+                      background: dragOver ? "#F0C9B4" : "#F5EDE3",
+                      border: `1px solid ${dragOver ? "#C8532A" : "#E4D9CC"}`,
+                      transition: "all 0.2s ease",
+                    }}
+                  >
+                    <ImagePlus
+                      style={{
+                        width: "13px",
+                        height: "13px",
+                        color: dragOver ? "#C8532A" : "#C8BEB0",
+                        transition: "color 0.2s",
+                      }}
+                    />
+                  </div>
+                  <span
+                    style={{
+                      fontSize: "10px",
+                      fontFamily: FONT,
+                      color: dragOver ? "#C8532A" : "#B5A08A",
+                      fontWeight: dragOver ? 500 : 400,
+                    }}
+                  >
+                    {dragOver ? "Drop to import" : "Drop image or file"}
+                  </span>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*,.pdf,.tex,.bib"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => {
+                      const files = Array.from(e.target.files || []);
+                      if (files.length) setUploadedFiles((p) => [...p, ...files.map((f) => f.name)]);
+                    }}
+                  />
+                </div>
+                {uploadedFiles.length > 0 && (
+                  <div className="mt-1.5 flex flex-col gap-1">
+                    {uploadedFiles.map((name, i) => (
+                      <div
+                        key={i}
+                        className="flex items-center gap-2 px-2 py-1 rounded-xl"
+                        style={{ background: "#DDF2E8", border: "1px solid #BDE5CF" }}
+                      >
+                        <CheckCircle style={{ width: "10px", height: "10px", color: "#3D9A6A" }} />
+                        <span style={{ fontSize: "10px", fontFamily: MONO, color: "#2E7D52" }}>{name}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Assets section */}
+              <div className="px-2 pb-3" style={{ borderTop: "1px solid #E4D9CC" }}>
+                <div className="flex items-center gap-1 px-2 pt-2 mb-1.5">
+                  <span
+                    style={{
+                      color: "#A08870",
+                      fontSize: "10px",
+                      fontFamily: FONT,
+                      letterSpacing: "0.08em",
+                      textTransform: "uppercase",
+                      fontWeight: 600,
+                    }}
+                  >
+                    Assets
+                  </span>
+                  <span
+                    style={{
+                      fontSize: "9px",
+                      color: "#C8BEB0",
+                      fontFamily: FONT,
+                      marginLeft: "auto",
+                    }}
+                  >
+                    {assetFiles.length} files
+                  </span>
+                </div>
+                {assetFiles.map((asset) => (
+                  <button
+                    key={asset.name}
+                    className="w-full flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-black/5 transition-colors text-left"
+                  >
+                    {asset.type === "image" ? (
+                      <Image style={{ width: "11px", height: "11px", color: "#C8BEB0", flexShrink: 0 }} />
+                    ) : (
+                      <File style={{ width: "11px", height: "11px", color: "#C8BEB0", flexShrink: 0 }} />
+                    )}
+                    <span
+                      style={{
+                        fontSize: "11px",
+                        fontFamily: FONT,
+                        color: "#7A6858",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {asset.name}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ────── VERSION CONTROL TAB ────── */}
+          {sidebarTab === "vcs" && (
+            <div className="flex flex-col h-full py-2 px-2">
+              {/* Branch badge */}
+              <div
+                className="flex items-center gap-2 px-3 py-2 rounded-xl mb-3"
                 style={{
-                  fontSize: "12px",
-                  fontFamily: FONT,
-                  color: file.active ? "#C8532A" : file.modified ? "#D4800A" : "#7A6858",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
+                  background: "#FAE5D8",
+                  border: "1.5px solid #F0C9B4",
                 }}
               >
-                {file.name}
-              </span>
-            </button>
-          ))}
+                <GitBranch style={{ width: "12px", height: "12px", color: "#C8532A" }} />
+                <span style={{ fontSize: "12px", fontFamily: FONT, fontWeight: 500, color: "#C8532A" }}>
+                  main
+                </span>
+                <span style={{ fontSize: "10px", fontFamily: FONT, color: "#B5A08A", marginLeft: "auto" }}>
+                  ↑ 0 ↓ 0
+                </span>
+              </div>
+
+              {/* Changed files */}
+              <div className="mb-3">
+                <div className="flex items-center gap-1 px-2 mb-1.5">
+                  <span
+                    style={{
+                      color: "#A08870",
+                      fontSize: "10px",
+                      fontFamily: FONT,
+                      letterSpacing: "0.08em",
+                      textTransform: "uppercase",
+                      fontWeight: 600,
+                    }}
+                  >
+                    Changes ({changedFiles.length})
+                  </span>
+                </div>
+                <div
+                  className="rounded-xl overflow-hidden"
+                  style={{ background: "#FDFAF6", border: "1px solid #E8DDD0" }}
+                >
+                  {changedFiles.map((file, i) => (
+                    <div
+                      key={file.name}
+                      className="flex items-center gap-2 px-3 py-1.5 hover:bg-white/60 transition-colors cursor-pointer"
+                      style={{ borderBottom: i < changedFiles.length - 1 ? "1px solid #F0E9DF" : "none" }}
+                    >
+                      <span
+                        style={{
+                          fontSize: "9px",
+                          fontFamily: MONO,
+                          fontWeight: 600,
+                          color: file.color,
+                          width: "14px",
+                          textAlign: "center",
+                        }}
+                      >
+                        {file.status}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: "11px",
+                          fontFamily: FONT,
+                          color: "#7A6858",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {file.name}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Commit button placeholder */}
+              <button
+                className="flex items-center justify-center gap-2 px-3 py-2 rounded-xl transition-all mb-3"
+                style={{
+                  background: "#FAE5D8",
+                  border: "1.5px solid #F0C9B4",
+                  color: "#C8532A",
+                  fontSize: "12px",
+                  fontFamily: FONT,
+                  fontWeight: 500,
+                }}
+              >
+                <Upload style={{ width: "11px", height: "11px" }} />
+                Commit & Push
+              </button>
+
+              {/* Recent commits */}
+              <div>
+                <div className="flex items-center gap-1 px-2 mb-1.5">
+                  <span
+                    style={{
+                      color: "#A08870",
+                      fontSize: "10px",
+                      fontFamily: FONT,
+                      letterSpacing: "0.08em",
+                      textTransform: "uppercase",
+                      fontWeight: 600,
+                    }}
+                  >
+                    Recent Commits
+                  </span>
+                </div>
+                {recentCommits.map((commit) => (
+                  <div
+                    key={commit.hash}
+                    className="flex items-start gap-2 px-2 py-1.5 rounded-lg hover:bg-black/5 transition-colors cursor-pointer"
+                  >
+                    <GitCommit style={{ width: "11px", height: "11px", color: "#C8BEB0", marginTop: "2px", flexShrink: 0 }} />
+                    <div className="flex-1 min-w-0">
+                      <p
+                        style={{
+                          fontSize: "11px",
+                          fontFamily: FONT,
+                          color: "#7A6858",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          lineHeight: 1.3,
+                        }}
+                      >
+                        {commit.message}
+                      </p>
+                      <p style={{ fontSize: "9px", fontFamily: FONT, color: "#C8BEB0" }}>
+                        {commit.hash} · {commit.date}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Editor + Preview */}
+      {/* ═══════════════ EDITOR + PREVIEW ═══════════════ */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Tabs */}
+        {/* Tab bar */}
         <div
           className="flex items-stretch shrink-0 overflow-x-auto"
           style={{
@@ -309,9 +667,9 @@ export function EditorScreen() {
           </div>
         </div>
 
-        {/* Editor + Preview Split */}
+        {/* Editor + Preview split */}
         <div className="flex-1 flex overflow-hidden">
-          {/* Code Editor */}
+          {/* ────── Code Editor ────── */}
           <div
             className="flex-1 overflow-auto"
             style={{ background: "#FEFCF8" }}
@@ -364,7 +722,7 @@ export function EditorScreen() {
           {/* Divider */}
           <div style={{ width: "1px", background: "#E4D9CC", flexShrink: 0 }} />
 
-          {/* PDF Preview */}
+          {/* ────── PDF Preview ────── */}
           <div
             className="flex flex-col"
             style={{ width: "42%", background: "#F2EBE1" }}
