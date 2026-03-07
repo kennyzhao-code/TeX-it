@@ -4,11 +4,14 @@ import { toast } from "sonner";
 declare global {
   interface Window {
     api: {
-      compileDocument: (config: { code: string }) => Promise<{ data?: string; error?: string }>;
+      compileDocument: (filePath: string) => Promise<{ data?: string; error?: string }>;
       openDirectory: () => Promise<{ canceled: boolean; path?: string; files?: any[]; error?: string }>;
+      readDirectory: (dirPath: string) => Promise<{ files?: any[]; error?: string }>;
       readFile: (filePath: string) => Promise<{ content?: string; error?: string }>;
       saveFile: (filePath: string, content: string) => Promise<{ success?: boolean; error?: string }>;
       createItem: (dirPath: string, name: string, isDir: boolean) => Promise<{ success?: boolean; path?: string; error?: string }>;
+      renameItem: (oldPath: string, newName: string) => Promise<{ success?: boolean; newPath?: string; error?: string }>;
+      deleteItem: (itemPath: string) => Promise<{ success?: boolean; error?: string }>;
       openAskBox: (code: string) => Promise<void>;
       askGeminiEdit: (payload: { prompt: string, content: string }) => Promise<{ content?: string; error?: string }>;
       sendProposal: (newCode: string) => Promise<{ success: boolean }>;
@@ -41,6 +44,12 @@ import {
   File,
   Mic,
   Sparkles,
+  Bot,
+  Send,
+  ChevronRight,
+  MoreVertical,
+  Trash2,
+  Edit2,
   Check,
 } from "lucide-react";
 
@@ -187,9 +196,18 @@ export function EditorScreen() {
   const [fileTree, setFileTree] = useState<FileEntry[]>([]);
   const [openTabs, setOpenTabs] = useState<{ name: string, path: string, modified: boolean }[]>([]);
   const [activeTabPath, setActiveTabPath] = useState<string | null>(null);
-  const [createMenuOpen, setCreateMenuOpen] = useState(false);
-  const [isCreatingItem, setIsCreatingItem] = useState<{ isDir: boolean } | null>(null);
+  const [createMenuOpen, setCreateMenuOpen] = useState<{ path: string, x: number, y: number } | null>(null); // tracks target dir for + menu
+  const [isCreatingItem, setIsCreatingItem] = useState<{ isDir: boolean, targetDir: string } | null>(null);
   const [newItemName, setNewItemName] = useState("");
+
+  // Nested Tree State
+  const [folderContents, setFolderContents] = useState<Record<string, FileEntry[]>>({});
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+
+  // Context Menu State
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; file: FileEntry } | null>(null);
+  const [renamingFile, setRenamingFile] = useState<FileEntry | null>(null);
+  const [renameInput, setRenameInput] = useState("");
 
   const [code, setCode] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -244,9 +262,33 @@ export function EditorScreen() {
     if (result.path && result.files) {
       setCurrentDir(result.path);
       setFileTree(result.files);
+      setFolderContents({ [result.path]: result.files });
+      setExpandedFolders(new Set());
       setOpenTabs([]);
       setActiveTabPath(null);
       setCode("");
+    }
+  };
+
+  const handleToggleFolder = async (file: FileEntry) => {
+    if (!file.isDir || !window.api) return;
+
+    const newExpanded = new Set(expandedFolders);
+    if (newExpanded.has(file.path)) {
+      newExpanded.delete(file.path);
+      setExpandedFolders(newExpanded);
+    } else {
+      newExpanded.add(file.path);
+      setExpandedFolders(newExpanded);
+      
+      if (!folderContents[file.path]) {
+        const res = await window.api.readDirectory(file.path);
+        if (res.error) {
+          toast.error("Failed to read folder", { description: res.error });
+        } else if (res.files) {
+          setFolderContents(prev => ({ ...prev, [file.path]: res.files! }));
+        }
+      }
     }
   };
 
@@ -292,16 +334,27 @@ export function EditorScreen() {
 
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('open-folder-menu-click', handleMenuClick);
+    const handleGlobalClick = () => {
+      setContextMenu(null);
+      setCreateMenuOpen(null);
+    };
+    window.addEventListener('click', handleGlobalClick);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('open-folder-menu-click', handleMenuClick);
+      window.removeEventListener('click', handleGlobalClick);
     };
   }, [handleSaveFile]);
 
-  const handleCreateItemInit = (isDir: boolean) => {
-    setIsCreatingItem({ isDir });
+  const handleCreateItemInit = (isDir: boolean, targetDir: string) => {
+    setIsCreatingItem({ isDir, targetDir });
     setNewItemName("");
-    setCreateMenuOpen(false);
+    setCreateMenuOpen(null);
+    if (!expandedFolders.has(targetDir)) {
+       const newExpanded = new Set(expandedFolders);
+       newExpanded.add(targetDir);
+       setExpandedFolders(newExpanded);
+    }
   };
 
   const handleCreateItemSubmit = async () => {
@@ -313,38 +366,100 @@ export function EditorScreen() {
       return;
     }
 
-    // Auto-append .tex for files if no extension is provided
     if (!isCreatingItem.isDir && !name.includes(".")) {
       name += ".tex";
     }
-
-    const result = await window.api.createItem(currentDir, name, isCreatingItem.isDir);
+    
+    const result = await window.api.createItem(isCreatingItem.targetDir, name, isCreatingItem.isDir);
     if (result.error) {
       toast.error("Failed to create", { description: result.error });
     } else {
       toast.success(`${isCreatingItem.isDir ? 'Folder' : 'File'} created!`);
       const newFile: FileEntry = { name, isDir: isCreatingItem.isDir, path: result.path! };
-      setFileTree([...fileTree, newFile].sort((a, b) => {
-        if (a.isDir && !b.isDir) return -1;
-        if (!a.isDir && b.isDir) return 1;
-        return a.name.localeCompare(b.name);
-      }));
+      
+      // Update folderContents for the targeted directory
+      setFolderContents(prev => {
+         const list = prev[isCreatingItem.targetDir] || [];
+         const newList = [...list, newFile].sort((a, b) => {
+           if (a.isDir && !b.isDir) return -1;
+           if (!a.isDir && b.isDir) return 1;
+           return a.name.localeCompare(b.name);
+         });
+         return { ...prev, [isCreatingItem.targetDir]: newList };
+      });
+      
+      // Also update fileTree if we added to root
+      if (isCreatingItem.targetDir === currentDir) {
+         setFileTree(prev => {
+            return [...prev, newFile].sort((a, b) => {
+               if (a.isDir && !b.isDir) return -1;
+               if (!a.isDir && b.isDir) return 1;
+               return a.name.localeCompare(b.name);
+            });
+         });
+      }
     }
     setIsCreatingItem(null);
     setNewItemName("");
+  };
+
+  const handleRenameSubmit = async () => {
+    if (!window.api || !renamingFile || !renameInput.trim()) {
+       setRenamingFile(null);
+       return;
+    }
+    const newName = renameInput.trim();
+    if (newName === renamingFile.name) {
+       setRenamingFile(null);
+       return;
+    }
+
+    const result = await window.api.renameItem(renamingFile.path, newName);
+    if (result.error) {
+      toast.error("Failed to rename", { description: result.error });
+    } else if (result.newPath) {
+      toast.success("Renamed successfully");
+      // Fast refresh for root - a full tree re-read would be cleaner but this works
+      if (currentDir) {
+         queueMicrotask(() => handleOpenFolder()); // Lazy refresh, can optimize later
+      }
+    }
+    setRenamingFile(null);
+  };
+
+  const handleDeleteItem = async (file: FileEntry) => {
+     if (!window.api) return;
+     const result = await window.api.deleteItem(file.path);
+     if (result.error) {
+        toast.error("Failed to delete", { description: result.error });
+     } else {
+        toast.success("Moved to trash");
+        if (currentDir) queueMicrotask(() => handleOpenFolder()); // Lazy refresh
+     }
   };
 
   const lines = code.split("\n");
   const tokens = tokenizeLatex(code);
 
   const handleCompile = async () => {
+    if (!activeTabPath) {
+      toast.error("No file selected", { description: "Please open a .tex file to compile." });
+      return;
+    }
+    
+    // Auto-save the file if it's modified since node-latex compiles from the physical file
+    const tabState = openTabs.find(t => t.path === activeTabPath);
+    if (tabState?.modified) {
+      await handleSaveFile();
+    }
+
     setCompiling(true);
     setCompiled(false);
     try {
       if (!window.api) {
         throw new Error("Electron API is not available (running in browser instead of desktop application).");
       }
-      const result = await window.api.compileDocument({ code });
+      const result = await window.api.compileDocument(activeTabPath);
       if (result.error) {
         toast.error("LaTeX Compilation Failed", {
           description: result.error,
@@ -441,7 +556,7 @@ export function EditorScreen() {
                   </div>
                 ) : (
                   <>
-                    <div className="flex items-center justify-between px-2 mb-1">
+                    <div className="flex items-center justify-between px-2 mb-1 group">
                       <div className="flex items-center gap-1 cursor-pointer transition-opacity hover:opacity-70" onClick={handleOpenFolder} title="Click to open a different folder">
                         <FolderOpen style={{ width: "10px", height: "10px", color: "#C8532A" }} />
                         <span
@@ -460,11 +575,18 @@ export function EditorScreen() {
                           {currentDir?.split(/[/\\]/).pop() || "Project"}
                         </span>
                       </div>
-                      <div className="relative">
+                      <div className="relative flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
                         <button
-                          onClick={() => setCreateMenuOpen(!createMenuOpen)}
-                          onBlur={() => setTimeout(() => setCreateMenuOpen(false), 150)}
-                          className="hover:bg-bg-black/5 rounded-md p-0.5 transition-colors"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (createMenuOpen?.path === currentDir) {
+                              setCreateMenuOpen(null);
+                            } else {
+                              const rect = e.currentTarget.getBoundingClientRect();
+                              setCreateMenuOpen({ path: currentDir!, x: rect.left, y: rect.bottom });
+                            }
+                          }}
+                          className="hover:bg-black/5 rounded-md p-0.5 transition-colors"
                           style={{ color: "#A08870" }}
                         >
                           <Plus style={{ width: "12px", height: "12px" }} />
@@ -501,7 +623,7 @@ export function EditorScreen() {
                       </div>
                     ) : (
                       <>
-                        {isCreatingItem && (
+                        {isCreatingItem?.targetDir === currentDir && (
                           <div
                             className="w-full flex items-center gap-2 px-2 py-1.5 rounded-xl mt-0.5"
                             style={{ background: "#FAE5D8", border: "1px solid #F0C9B4" }}
@@ -524,7 +646,6 @@ export function EditorScreen() {
                                 }
                               }}
                               onBlur={() => {
-                                // Delay slightly to allow button clicks (like save) to fire if we ever add them
                                 setTimeout(handleCreateItemSubmit, 100);
                               }}
                               className="bg-transparent border-none outline-none w-full"
@@ -537,43 +658,218 @@ export function EditorScreen() {
                             />
                           </div>
                         )}
-                        {fileTree.map((file) => {
-                          const isActive = activeTabPath === file.path;
-                          const isModified = openTabs.find(t => t.path === file.path)?.modified;
-                          return (
-                            <button
-                              key={file.path}
-                              onClick={() => handleOpenFile(file)}
-                              title={file.path}
-                              className="w-full flex items-center gap-2 px-2 py-1 rounded-xl transition-all text-left mt-0.5"
-                              style={{
-                                background: isActive ? "#FAE5D8" : "transparent",
-                                border: isActive ? "1px solid #F0C9B4" : "1px solid transparent",
-                              }}
-                            >
-                              {file.isDir ? (
-                                <FolderOpen style={{ width: "12px", height: "12px", color: "#C8532A", flexShrink: 0 }} />
-                              ) : (
-                                <FileText style={{ width: "12px", height: "12px", color: "#C8BEB0", flexShrink: 0 }} />
-                              )}
-                              <span
-                                style={{
-                                  fontSize: "12px",
-                                  fontFamily: FONT,
-                                  color: isActive ? "#C8532A" : isModified ? "#D4800A" : "#7A6858",
-                                  overflow: "hidden",
-                                  textOverflow: "ellipsis",
-                                  whiteSpace: "nowrap",
-                                }}
-                              >
-                                {file.name}
-                              </span>
-                            </button>
-                          );
-                        })}
+                        {(() => {
+                          const renderFileTree = (files: FileEntry[], depth = 0) => {
+                            return files.map((file) => {
+                              const isActive = activeTabPath === file.path;
+                              const isModified = openTabs.find((t) => t.path === file.path)?.modified;
+                              const isExpanded = expandedFolders.has(file.path);
+                              const isTargetDir = isCreatingItem?.targetDir === file.path;
+
+                              return (
+                                <div key={file.path}>
+                                  <div
+                                    className="w-full flex items-center justify-between py-1 rounded-xl transition-all mt-0.5 group"
+                                    style={{
+                                      background: isActive ? "#FAE5D8" : "transparent",
+                                      border: isActive ? "1px solid #F0C9B4" : "1px solid transparent",
+                                      paddingLeft: `${8 + depth * 12}px`,
+                                      paddingRight: "8px",
+                                      cursor: "pointer",
+                                    }}
+                                    onClick={() => file.isDir ? handleToggleFolder(file) : handleOpenFile(file)}
+                                    onContextMenu={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      setContextMenu({ x: e.clientX, y: e.clientY, file });
+                                    }}
+                                  >
+                                    <div className="flex items-center gap-2 overflow-hidden flex-1">
+                                      {file.isDir ? (
+                                        <div className="flex items-center gap-0.5 shrink-0">
+                                          {isExpanded ? (
+                                            <ChevronDown style={{ width: "12px", height: "12px", color: "#C8532A" }} />
+                                          ) : (
+                                            <ChevronRight style={{ width: "12px", height: "12px", color: "#C8BEB0" }} />
+                                          )}
+                                          <FolderOpen style={{ width: "12px", height: "12px", color: "#C8532A" }} />
+                                        </div>
+                                      ) : (
+                                        <div className="flex items-center gap-0.5 shrink-0 pl-3">
+                                          <FileText style={{ width: "12px", height: "12px", color: "#C8BEB0" }} />
+                                        </div>
+                                      )}
+                                      
+                                      {renamingFile?.path === file.path ? (
+                                        <input
+                                          autoFocus
+                                          value={renameInput}
+                                          onChange={(e) => setRenameInput(e.target.value)}
+                                          onKeyDown={(e) => {
+                                            if (e.key === "Enter") handleRenameSubmit();
+                                            if (e.key === "Escape") setRenamingFile(null);
+                                          }}
+                                          onBlur={() => setTimeout(handleRenameSubmit, 150)}
+                                          onClick={(e) => e.stopPropagation()}
+                                          className="bg-transparent border-none outline-none w-full"
+                                          style={{ fontSize: "12px", fontFamily: FONT, color: "#C8532A" }}
+                                        />
+                                      ) : (
+                                        <span
+                                          style={{
+                                            fontSize: "12px",
+                                            fontFamily: FONT,
+                                            color: isActive ? "#C8532A" : isModified ? "#D4800A" : "#7A6858",
+                                            overflow: "hidden",
+                                            textOverflow: "ellipsis",
+                                            whiteSpace: "nowrap",
+                                          }}
+                                        >
+                                          {file.name}
+                                        </span>
+                                      )}
+                                    </div>
+                                    
+                                    {file.isDir && (
+                                      <div className="relative opacity-0 group-hover:opacity-100 transition-opacity flex items-center shrink-0">
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (createMenuOpen?.path === file.path) {
+                                              setCreateMenuOpen(null);
+                                            } else {
+                                              const rect = e.currentTarget.getBoundingClientRect();
+                                              setCreateMenuOpen({ path: file.path, x: rect.left, y: rect.bottom });
+                                            }
+                                          }}
+                                          className="hover:bg-black/5 rounded-md p-0.5"
+                                        >
+                                          <Plus style={{ width: "12px", height: "12px", color: "#A08870" }} />
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                  
+                                  {/* Inline create input if creating in this dir */}
+                                  {isTargetDir && (
+                                    <div
+                                      className="w-full flex items-center gap-1.5 py-1.5 rounded-xl mt-0.5"
+                                      style={{ background: "#FAE5D8", border: "1px solid #F0C9B4", paddingLeft: `${8 + (depth + 1) * 12}px`, paddingRight: "8px" }}
+                                    >
+                                      {isCreatingItem.isDir ? (
+                                        <div className="flex items-center gap-0.5 shrink-0 pl-3">
+                                          <FolderOpen style={{ width: "12px", height: "12px", color: "#C8532A" }} />
+                                        </div>
+                                      ) : (
+                                        <div className="flex items-center gap-0.5 shrink-0 pl-3">
+                                          <FileText style={{ width: "12px", height: "12px", color: "#C8BEB0" }} />
+                                        </div>
+                                      )}
+                                      <input
+                                        autoFocus
+                                        value={newItemName}
+                                        onChange={(e) => setNewItemName(e.target.value)}
+                                        onKeyDown={(e) => {
+                                          if (e.key === "Enter") handleCreateItemSubmit();
+                                          else if (e.key === "Escape") { setIsCreatingItem(null); setNewItemName(""); }
+                                        }}
+                                        onBlur={() => setTimeout(handleCreateItemSubmit, 150)}
+                                        className="bg-transparent border-none outline-none w-full"
+                                        style={{ fontSize: "12px", fontFamily: FONT, color: "#C8532A" }}
+                                        placeholder={isCreatingItem.isDir ? "Folder name..." : "file.tex"}
+                                      />
+                                    </div>
+                                  )}
+
+                                  {/* Render children if expanded */}
+                                  {file.isDir && isExpanded && folderContents[file.path] && (
+                                    <div>
+                                      {renderFileTree(folderContents[file.path], depth + 1)}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            });
+                          };
+                          
+                          return renderFileTree(fileTree, 0);
+                        })()}
                       </>
                     )}
                   </>
+                )}
+
+                {/* Custom Create Menu */}
+                {createMenuOpen && (
+                  <div
+                    className="fixed rounded-lg shadow-lg py-1 z-50 flex flex-col min-w-[140px]"
+                    style={{
+                      background: "#FDFBF7",
+                      border: "1px solid #EAE0D5",
+                      left: Math.min(createMenuOpen.x, window.innerWidth - 150),
+                      top: Math.min(createMenuOpen.y + 4, window.innerHeight - 80),
+                      boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <button 
+                      className="w-full text-left px-3 py-1.5 hover:bg-black/5 flex items-center gap-2 transition-colors"
+                      onMouseDown={(e) => {
+                         e.preventDefault();
+                         handleCreateItemInit(false, createMenuOpen.path);
+                      }}
+                    >
+                      <FileText style={{ width: "12px", height: "12px", color: "#C8BEB0" }} />
+                      <span style={{ fontSize: "11px", color: "#7A6858", fontFamily: FONT }}>New File</span>
+                    </button>
+                    <button 
+                      className="w-full text-left px-3 py-1.5 hover:bg-black/5 flex items-center gap-2 transition-colors"
+                      onMouseDown={(e) => {
+                         e.preventDefault();
+                         handleCreateItemInit(true, createMenuOpen.path);
+                      }}
+                    >
+                      <FolderOpen style={{ width: "12px", height: "12px", color: "#C8532A" }} />
+                      <span style={{ fontSize: "11px", color: "#7A6858", fontFamily: FONT }}>New Folder</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* Custom Context Menu */}
+                {contextMenu && (
+                  <div
+                    className="fixed rounded-lg shadow-lg py-1 z-50 flex flex-col min-w-[140px]"
+                    style={{
+                      background: "#FDFBF7",
+                      border: "1px solid #EAE0D5",
+                      left: Math.min(contextMenu.x, window.innerWidth - 150),
+                      top: Math.min(contextMenu.y, window.innerHeight - 80),
+                      boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <button
+                      className="w-full text-left px-3 py-1.5 hover:bg-black/5 flex items-center gap-2 transition-colors"
+                      onClick={() => {
+                        setRenamingFile(contextMenu.file);
+                        setRenameInput(contextMenu.file.name);
+                        setContextMenu(null);
+                      }}
+                    >
+                      <Edit2 style={{ width: "12px", height: "12px", color: "#7A6858" }} />
+                      <span style={{ fontSize: "11px", color: "#3C2A18", fontFamily: FONT }}>Rename</span>
+                    </button>
+                    <button
+                      className="w-full text-left px-3 py-1.5 hover:bg-red-50 flex items-center gap-2 transition-colors"
+                      onClick={() => {
+                        setContextMenu(null);
+                        handleDeleteItem(contextMenu.file);
+                      }}
+                    >
+                      <Trash2 style={{ width: "12px", height: "12px", color: "#E03E3E" }} />
+                      <span style={{ fontSize: "11px", color: "#E03E3E", fontFamily: FONT }}>Delete</span>
+                    </button>
+                  </div>
                 )}
               </div>
 
@@ -1218,7 +1514,7 @@ export function EditorScreen() {
             <div className="flex-1 overflow-auto p-5 flex justify-center items-center">
               {pdfData ? (
                 <iframe
-                  src={pdfData}
+                  src={`data:application/pdf;base64,${pdfData}`}
                   className="shadow-md rounded-sm bg-white"
                   style={{
                     width: `${zoom}%`,

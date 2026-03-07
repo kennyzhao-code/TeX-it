@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { spawn, ChildProcess } from 'child_process';
@@ -38,23 +38,61 @@ app.whenReady().then(() => {
 
     createWindow();
 
-    ipcMain.handle('compile-document', async (event, config) => {
+    ipcMain.handle('compile-document', async (event, filePath: string) => {
         return new Promise((resolve) => {
             try {
-                const pdfStream = latex(config.code);
-                const chunks: Buffer[] = [];
-                let errorMsg = '';
-
-                pdfStream.on('data', (chunk: Buffer) => chunks.push(chunk));
-                pdfStream.on('error', (err: any) => {
-                    errorMsg = err.message || String(err);
+                if (!fs.existsSync(filePath)) {
+                    resolve({ error: `File not found: ${filePath}` });
+                    return;
+                }
+                
+                const dirPath = path.dirname(filePath);
+                const fileName = path.basename(filePath);
+                
+                // Use a temporary directory for build artifacts to avoid polluting the workspace
+                const tempDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'ltexch-'));
+                
+                // Combine TEXINPUTS with the document directory so includes work
+                const env = Object.assign({}, process.env, {
+                    TEXINPUTS: `${dirPath}:${process.env.TEXINPUTS || ''}`
                 });
-                pdfStream.on('finish', () => {
-                    if (errorMsg) {
-                        resolve({ error: errorMsg });
+
+                // Spawn pdflatex directly to bypass buggy node-latex wrapper
+                const texProcess = spawn('pdflatex', [
+                    '-halt-on-error',
+                    '-interaction=nonstopmode',
+                    `-output-directory=${tempDir}`,
+                    fileName
+                ], { cwd: dirPath, env });
+
+                let errorLog = '';
+                
+                texProcess.stdout.on('data', (data) => {
+                    errorLog += data.toString();
+                });
+                
+                texProcess.stderr.on('data', (data) => {
+                    errorLog += data.toString();
+                });
+
+                texProcess.on('close', (code) => {
+                    if (code !== 0) {
+                        // Extract just the error message if possible
+                        const match = errorLog.match(/! .*/g);
+                        const cleanError = match ? match.join('\n') : errorLog;
+                        fs.rmSync(tempDir, { recursive: true, force: true });
+                        resolve({ error: `LaTeX Error:\n${cleanError}` });
                     } else {
-                        const buffer = Buffer.concat(chunks);
-                        resolve({ data: buffer.toString('base64') });
+                        // Success! Read the PDF and return as base64
+                        const pdfPath = path.join(tempDir, fileName.replace('.tex', '.pdf'));
+                        if (fs.existsSync(pdfPath)) {
+                            const buffer = fs.readFileSync(pdfPath);
+                            fs.rmSync(tempDir, { recursive: true, force: true });
+                            resolve({ data: buffer.toString('base64') });
+                        } else {
+                            fs.rmSync(tempDir, { recursive: true, force: true });
+                            resolve({ error: 'PDF file was not generated.' });
+                        }
                     }
                 });
             } catch (err: any) {
@@ -186,6 +224,44 @@ app.whenReady().then(() => {
                 fs.writeFileSync(fullPath, '', 'utf-8');
             }
             return { success: true, path: fullPath };
+        } catch (err: any) {
+            return { error: err.message };
+        }
+    });
+
+    ipcMain.handle('read-directory', async (event, dirPath) => {
+        try {
+            const items = fs.readdirSync(dirPath, { withFileTypes: true });
+            const files = items.map(item => ({
+                name: item.name,
+                isDir: item.isDirectory(),
+                path: path.join(dirPath, item.name)
+            })).sort((a, b) => {
+                if (a.isDir && !b.isDir) return -1;
+                if (!a.isDir && b.isDir) return 1;
+                return a.name.localeCompare(b.name);
+            });
+            return { files };
+        } catch (err: any) {
+            return { error: err.message };
+        }
+    });
+
+    ipcMain.handle('rename-item', async (event, oldPath, newName) => {
+        try {
+            const dirPath = path.dirname(oldPath);
+            const newPath = path.join(dirPath, newName);
+            fs.renameSync(oldPath, newPath);
+            return { success: true, newPath };
+        } catch (err: any) {
+            return { error: err.message };
+        }
+    });
+
+    ipcMain.handle('delete-item', async (event, itemPath) => {
+        try {
+            await shell.trashItem(itemPath);
+            return { success: true };
         } catch (err: any) {
             return { error: err.message };
         }
