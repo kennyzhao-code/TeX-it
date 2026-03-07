@@ -1,4 +1,4 @@
-# LTeXch
+# TeX-it
 
 > **LaTeX should not feel harder than the ideas you're trying to write.**
 
