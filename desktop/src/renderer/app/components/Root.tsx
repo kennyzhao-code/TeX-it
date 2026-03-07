@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Toaster } from "sonner";
 import { Outlet, useNavigate, useLocation } from "react-router";
 import {
   Files,
@@ -83,70 +84,9 @@ export function Root() {
           Help
         </button>
 
+        {/* Right side spacer */}
         <div className="flex-1" />
 
-        {/* Text-to-Speech / Image-to-LaTeX bubble segmented toggle */}
-        <div
-          className="flex items-center p-0.5 rounded-xl gap-0.5"
-          style={{
-            background: "#EDE5D8",
-            border: "1.5px solid #E0D5C5",
-          }}
-        >
-          {([
-            { mode: "text" as const, Icon: Volume2, label: "Text-to-Speech" },
-            { mode: "image" as const, Icon: ScanLine, label: "Image-to-LaTeX" },
-          ]).map(({ mode, Icon, label }) => {
-            const isActive = speechMode === mode;
-            return (
-              <button
-                key={mode}
-                title={label}
-                onClick={() => setSpeechMode(mode)}
-                className="flex items-center gap-1.5 rounded-lg transition-all"
-                style={{
-                  padding: "3px 10px",
-                  background: isActive ? "#FFFFFF" : "transparent",
-                  color: isActive ? "#C8532A" : "#B5A08A",
-                  fontSize: "11px",
-                  fontFamily: FONT,
-                  fontWeight: isActive ? 500 : 400,
-                  boxShadow: isActive
-                    ? "0 1px 4px rgba(44,31,18,0.10), 0 0.5px 1px rgba(44,31,18,0.06)"
-                    : "none",
-                  transition: "all 0.15s ease",
-                }}
-              >
-                <Icon
-                  style={{
-                    width: "12px",
-                    height: "12px",
-                    flexShrink: 0,
-                    strokeWidth: isActive ? 2.2 : 1.8,
-                  }}
-                />
-                <span style={{ lineHeight: 1 }}>{label}</span>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Search palette */}
-        <div
-          className="flex items-center gap-2 px-3 rounded-full cursor-text ml-2"
-          style={{
-            height: "20px",
-            background: "#EFE8DE",
-            border: "1px solid #E0D5C5",
-            color: "#B5A08A",
-            fontSize: "11px",
-            fontFamily: FONT,
-            minWidth: "190px",
-          }}
-        >
-          <Command style={{ width: "10px", height: "10px" }} />
-          <span>Search or run command</span>
-        </div>
       </div>
 
       {/* Main Area */}
@@ -235,6 +175,7 @@ export function Root() {
           </span>
         </div>
       </div>
+      <Toaster position="bottom-right" richColors />
     </div>
   );
 }

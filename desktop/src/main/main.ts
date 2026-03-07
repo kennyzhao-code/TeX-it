@@ -1,6 +1,7 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, ipcMain } from 'electron';
 import * as path from 'path';
 import { spawn, ChildProcess } from 'child_process';
+const latex = require('node-latex');
 
 let mainWindow: BrowserWindow | null = null;
 let goProcess: ChildProcess | null = null;
@@ -34,6 +35,31 @@ app.whenReady().then(() => {
     }
 
     createWindow();
+
+    ipcMain.handle('compile-document', async (event, config) => {
+        return new Promise((resolve) => {
+            try {
+                const pdfStream = latex(config.code);
+                const chunks: Buffer[] = [];
+                let errorMsg = '';
+
+                pdfStream.on('data', (chunk: Buffer) => chunks.push(chunk));
+                pdfStream.on('error', (err: any) => {
+                    errorMsg = err.message || String(err);
+                });
+                pdfStream.on('finish', () => {
+                    if (errorMsg) {
+                        resolve({ error: errorMsg });
+                    } else {
+                        const buffer = Buffer.concat(chunks);
+                        resolve({ data: buffer.toString('base64') });
+                    }
+                });
+            } catch (err: any) {
+                resolve({ error: err.message || String(err) });
+            }
+        });
+    });
 
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) createWindow();

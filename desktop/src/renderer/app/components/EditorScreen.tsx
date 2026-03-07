@@ -1,4 +1,13 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
+import { toast } from "sonner";
+
+declare global {
+  interface Window {
+    api: {
+      compileDocument: (config: { code: string }) => Promise<{ data?: string; error?: string }>;
+    };
+  }
+}
 import {
   FileText,
   X,
@@ -20,6 +29,7 @@ import {
   Upload,
   Image,
   File,
+  Mic,
 } from "lucide-react";
 
 const FONT = "'NaN Jaune', 'Plus Jakarta Sans', -apple-system, sans-serif";
@@ -170,7 +180,26 @@ const recentCommits = [
 ];
 
 export function EditorScreen() {
-  const [code] = useState(SAMPLE_LATEX);
+  const [code, setCode] = useState(SAMPLE_LATEX);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const editorContainerRef = useRef<HTMLDivElement>(null);
+  const lineNumbersRef = useRef<HTMLDivElement>(null);
+
+  // Sync scroll between textarea and highlighted pre
+  const handleEditorScroll = useCallback(() => {
+    const ta = textareaRef.current;
+    const container = editorContainerRef.current;
+    const lineNums = lineNumbersRef.current;
+    if (!ta || !container) return;
+    const pre = container.querySelector("pre");
+    if (pre) {
+      pre.scrollTop = ta.scrollTop;
+      pre.scrollLeft = ta.scrollLeft;
+    }
+    if (lineNums) {
+      lineNums.scrollTop = ta.scrollTop;
+    }
+  }, []);
   const [activeTab, setActiveTab] = useState("thesis_main.tex");
   const [zoom, setZoom] = useState(100);
   const [compiling, setCompiling] = useState(false);
@@ -179,6 +208,8 @@ export function EditorScreen() {
   const [dragOver, setDragOver] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [pdfData, setPdfData] = useState<string | null>(null);
 
   const openTabs = [
     { name: "thesis_main.tex", modified: true },
@@ -189,9 +220,29 @@ export function EditorScreen() {
   const lines = code.split("\n");
   const tokens = tokenizeLatex(code);
 
-  const handleCompile = () => {
+  const handleCompile = async () => {
     setCompiling(true);
-    setTimeout(() => { setCompiling(false); setCompiled(true); }, 1400);
+    setCompiled(false);
+    try {
+      if (!window.api) {
+        throw new Error("Electron API is not available (running in browser instead of desktop application).");
+      }
+      const result = await window.api.compileDocument({ code });
+      if (result.error) {
+        toast.error("LaTeX Compilation Failed", {
+          description: result.error,
+          duration: 10000,
+        });
+      } else if (result.data) {
+        setPdfData(result.data);
+        setCompiled(true);
+        toast.success("Compiled successfully!");
+      }
+    } catch (e: any) {
+      toast.error("IPC Error", { description: e.message || String(e) });
+    } finally {
+      setCompiling(false);
+    }
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -398,9 +449,9 @@ export function EditorScreen() {
                 )}
               </div>
 
-              {/* Assets section */}
-              <div className="px-2 pb-3" style={{ borderTop: "1px solid #E4D9CC" }}>
-                <div className="flex items-center gap-1 px-2 pt-2 mb-1.5">
+              {/* RECORD section */}
+              <div className="px-3 py-2">
+                <div className="flex items-center gap-1 px-1 mb-2">
                   <span
                     style={{
                       color: "#A08870",
@@ -411,44 +462,50 @@ export function EditorScreen() {
                       fontWeight: 600,
                     }}
                   >
-                    Assets
-                  </span>
-                  <span
-                    style={{
-                      fontSize: "9px",
-                      color: "#C8BEB0",
-                      fontFamily: FONT,
-                      marginLeft: "auto",
-                    }}
-                  >
-                    {assetFiles.length} files
+                    Record
                   </span>
                 </div>
-                {assetFiles.map((asset) => (
-                  <button
-                    key={asset.name}
-                    className="w-full flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-black/5 transition-colors text-left"
+                <div
+                  className="rounded-2xl flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all hover:bg-black/5"
+                  style={{
+                    height: "72px",
+                    background: "#FDFAF6",
+                    border: "1.5px solid #DED3C4",
+                    transition: "all 0.2s ease",
+                  }}
+                >
+                  <div
+                    className="rounded-xl flex items-center justify-center"
+                    style={{
+                      width: "28px",
+                      height: "28px",
+                      background: "#F5EDE3",
+                      border: "1px solid #E4D9CC",
+                      transition: "all 0.2s ease",
+                    }}
                   >
-                    {asset.type === "image" ? (
-                      <Image style={{ width: "11px", height: "11px", color: "#C8BEB0", flexShrink: 0 }} />
-                    ) : (
-                      <File style={{ width: "11px", height: "11px", color: "#C8BEB0", flexShrink: 0 }} />
-                    )}
-                    <span
+                    <Mic
                       style={{
-                        fontSize: "11px",
-                        fontFamily: FONT,
-                        color: "#7A6858",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
+                        width: "13px",
+                        height: "13px",
+                        color: "#C8BEB0",
                       }}
-                    >
-                      {asset.name}
-                    </span>
-                  </button>
-                ))}
+                    />
+                  </div>
+                  <span
+                    style={{
+                      fontSize: "10px",
+                      fontFamily: FONT,
+                      color: "#B5A08A",
+                      fontWeight: 400,
+                    }}
+                  >
+                    Click to speak LaTeX
+                  </span>
+                </div>
               </div>
+
+
             </div>
           )}
 
@@ -671,51 +728,97 @@ export function EditorScreen() {
         <div className="flex-1 flex overflow-hidden">
           {/* ────── Code Editor ────── */}
           <div
-            className="flex-1 overflow-auto"
+            className="flex-1 flex overflow-hidden"
             style={{ background: "#FEFCF8" }}
           >
-            <div className="flex" style={{ minHeight: "100%" }}>
-              {/* Line numbers */}
-              <div
-                className="shrink-0 text-right pr-4 pt-4 pb-4 select-none"
+            {/* Line numbers */}
+            <div
+              ref={lineNumbersRef}
+              className="shrink-0 text-right pr-4 pt-4 pb-4 select-none overflow-hidden"
+              style={{
+                width: "48px",
+                color: "#D4C8B0",
+                fontSize: "12px",
+                fontFamily: MONO,
+                lineHeight: "1.65",
+                background: "#FAF6F0",
+                borderRight: "1px solid #EDE5D8",
+              }}
+            >
+              {lines.map((_, i) => (
+                <div key={i}>{i + 1}</div>
+              ))}
+            </div>
+
+            {/* Editor area: syntax highlight layer + transparent textarea on top */}
+            <div
+              ref={editorContainerRef}
+              className="flex-1 relative overflow-hidden"
+            >
+              {/* Syntax-highlighted background layer */}
+              <pre
+                aria-hidden="true"
                 style={{
-                  width: "48px",
-                  color: "#D4C8B0",
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  padding: "16px 0 16px 20px",
                   fontSize: "12px",
                   fontFamily: MONO,
                   lineHeight: "1.65",
-                  background: "#FAF6F0",
-                  borderRight: "1px solid #EDE5D8",
+                  margin: 0,
+                  whiteSpace: "pre",
+                  color: "#3C2A18",
+                  overflow: "auto",
+                  pointerEvents: "none",
                 }}
               >
-                {lines.map((_, i) => (
-                  <div key={i}>{i + 1}</div>
-                ))}
-              </div>
+                {tokens.map((token, i) =>
+                  token.type === "newline" ? (
+                    <br key={i} />
+                  ) : (
+                    <span key={i} style={{ color: TOKEN_COLORS[token.type] }}>
+                      {token.value}
+                    </span>
+                  )
+                )}
+                {/* Extra newline so textarea and pre match in height */}
+                {"\n"}
+              </pre>
 
-              {/* Code */}
-              <div className="flex-1 pt-4 pb-4 pl-5 overflow-x-auto">
-                <pre
-                  style={{
-                    fontSize: "12px",
-                    fontFamily: MONO,
-                    lineHeight: "1.65",
-                    margin: 0,
-                    whiteSpace: "pre",
-                    color: "#3C2A18",
-                  }}
-                >
-                  {tokens.map((token, i) =>
-                    token.type === "newline" ? (
-                      <br key={i} />
-                    ) : (
-                      <span key={i} style={{ color: TOKEN_COLORS[token.type] }}>
-                        {token.value}
-                      </span>
-                    )
-                  )}
-                </pre>
-              </div>
+              {/* Editable textarea overlay */}
+              <textarea
+                ref={textareaRef}
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                onScroll={handleEditorScroll}
+                spellCheck={false}
+                autoCapitalize="off"
+                autoCorrect="off"
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width: "100%",
+                  height: "100%",
+                  padding: "16px 0 16px 20px",
+                  fontSize: "12px",
+                  fontFamily: MONO,
+                  lineHeight: "1.65",
+                  margin: 0,
+                  border: "none",
+                  outline: "none",
+                  resize: "none",
+                  background: "transparent",
+                  color: "transparent",
+                  caretColor: "#C8532A",
+                  whiteSpace: "pre",
+                  overflow: "auto",
+                  zIndex: 1,
+                }}
+              />
             </div>
           </div>
 
