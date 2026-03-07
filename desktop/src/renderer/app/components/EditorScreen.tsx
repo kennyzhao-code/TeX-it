@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { toast } from "sonner";
 
 declare global {
@@ -169,6 +169,101 @@ function tokenizeLatex(code: string): Token[][] {
   return lines;
 }
 
+/* ─────────── LaTeX Linter ─────────── */
+type LatexDiagnostic = {
+  line: number;       // 0-indexed line number
+  colStart: number;   // 0-indexed column start
+  colEnd: number;     // 0-indexed column end (exclusive)
+  message: string;
+};
+
+function lintLatex(code: string): LatexDiagnostic[] {
+  const diagnostics: LatexDiagnostic[] = [];
+  const lines = code.split("\n");
+
+  // ── 1. Mismatched braces (per-line) ──
+  for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+    const line = lines[lineIdx];
+    const braceStack: number[] = []; // col positions of unmatched '{'
+    let inComment = false;
+    for (let col = 0; col < line.length; col++) {
+      if (line[col] === "%" && (col === 0 || line[col - 1] !== "\\")) {
+        inComment = true;
+      }
+      if (inComment) continue;
+      if (line[col] === "{" && (col === 0 || line[col - 1] !== "\\")) {
+        braceStack.push(col);
+      } else if (line[col] === "}" && (col === 0 || line[col - 1] !== "\\")) {
+        if (braceStack.length > 0) {
+          braceStack.pop();
+        } else {
+          diagnostics.push({
+            line: lineIdx,
+            colStart: col,
+            colEnd: col + 1,
+            message: `unmatched closing brace '}'`,
+          });
+        }
+      }
+    }
+    for (const openCol of braceStack) {
+      diagnostics.push({
+        line: lineIdx,
+        colStart: openCol,
+        colEnd: openCol + 1,
+        message: `unmatched opening brace '{'`,
+      });
+    }
+  }
+
+  // ── 2. Unclosed \begin / \end environments ──
+  const envStack: { name: string; line: number; col: number }[] = [];
+  const beginRe = /\\begin\{([^}]+)\}/g;
+  const endRe = /\\end\{([^}]+)\}/g;
+
+  for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+    const line = lines[lineIdx];
+    // Skip comment lines
+    const commentIdx = line.indexOf("%");
+    const activeLine = commentIdx >= 0 ? line.slice(0, commentIdx) : line;
+
+    let m: RegExpExecArray | null;
+    // Collect begins
+    beginRe.lastIndex = 0;
+    while ((m = beginRe.exec(activeLine)) !== null) {
+      envStack.push({ name: m[1], line: lineIdx, col: m.index });
+    }
+    // Collect ends
+    endRe.lastIndex = 0;
+    while ((m = endRe.exec(activeLine)) !== null) {
+      const envName = m[1];
+      const lastOpen = [...envStack].reverse().findIndex(e => e.name === envName);
+      if (lastOpen >= 0) {
+        envStack.splice(envStack.length - 1 - lastOpen, 1);
+      } else {
+        diagnostics.push({
+          line: lineIdx,
+          colStart: m.index,
+          colEnd: m.index + m[0].length,
+          message: `\\end{${envName}} without matching \\begin{${envName}}`,
+        });
+      }
+    }
+  }
+  // Any remaining opens are unclosed
+  for (const open of envStack) {
+    const matchText = `\\begin{${open.name}}`;
+    diagnostics.push({
+      line: open.line,
+      colStart: open.col,
+      colEnd: open.col + matchText.length,
+      message: `unclosed \\begin{${open.name}}`,
+    });
+  }
+
+  return diagnostics;
+}
+
 /* ─────────── File tree data ─────────── */
 type FileEntry = {
   name: string;
@@ -261,11 +356,45 @@ export function EditorScreen() {
 
   const [zoom, setZoom] = useState(100);
   const [compiling, setCompiling] = useState(false);
-  const [compiled, setCompiled] = useState(true);
+  const [compiled, setCompiled] = useState(false);
+  const [compileTime, setCompileTime] = useState<number>(0);
+  const [lastCompileError, setLastCompileError] = useState<string | null>(null);
   const [sidebarTab, setSidebarTab] = useState<"files" | "vcs">("files");
   const [dragOver, setDragOver] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Live syntax diagnostics
+  const diagnostics = useMemo(() => lintLatex(code), [code]);
+  const errorLineSet = useMemo(() => {
+    const s = new Set<number>();
+    for (const d of diagnostics) s.add(d.line);
+    return s;
+  }, [diagnostics]);
+
+  useEffect(() => {
+    const errorCount = diagnostics.length + (lastCompileError ? 1 : 0);
+    window.dispatchEvent(new CustomEvent('syntax-errors-change', { 
+      detail: { count: errorCount } 
+    }));
+  }, [diagnostics.length, lastCompileError]);
+
+  const [hoveredDiag, setHoveredDiag] = useState<{ diag: LatexDiagnostic; x: number; y: number } | null>(null);
+  const [cursorPos, setCursorPos] = useState({ line: 1, col: 1 });
+
+  const updateCursorPos = useCallback(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    const textBefore = ta.value.substring(0, ta.selectionStart);
+    const lines = textBefore.split("\n");
+    setCursorPos({
+      line: lines.length,
+      col: lines[lines.length - 1].length + 1
+    });
+    window.dispatchEvent(new CustomEvent('cursor-pos-change', { 
+      detail: { line: lines.length, col: lines[lines.length - 1].length + 1 } 
+    }));
+  }, []);
 
   const handleOpenFolder = async () => {
     if (!window.api) return;
@@ -512,22 +641,27 @@ export function EditorScreen() {
 
     setCompiling(true);
     setCompiled(false);
+    setLastCompileError(null);
+    const startTime = performance.now();
+
     try {
       if (!window.api) {
         throw new Error("Electron API is not available (running in browser instead of desktop application).");
       }
       const result = await window.api.compileDocument(activeTabPath);
+      const endTime = performance.now();
+      setCompileTime((endTime - startTime) / 1000);
+
       if (result.error) {
-        toast.error("LaTeX Compilation Failed", {
-          description: result.error,
-          duration: 10000,
-        });
+        setLastCompileError(result.error);
+        // Toast removed as per user request
       } else if (result.data) {
         setPdfData(result.data);
         setCompiled(true);
-        toast.success("Compiled successfully!");
+        // Toast removed for consistency
       }
     } catch (e: any) {
+      setLastCompileError(e.message || String(e));
       toast.error("IPC Error", { description: e.message || String(e) });
     } finally {
       setCompiling(false);
@@ -1475,29 +1609,210 @@ export function EditorScreen() {
                     boxSizing: "border-box",
                   }}
                 >
-                  {linesOfTokens.map((lineTokens, lineIdx) => (
-                    <div key={lineIdx} style={{ position: "relative", minHeight: "1.65em" }}>
-                      {/* Integrated Line Number */}
-                      <span
-                        style={{
-                          position: "absolute",
-                          left: "-52px",
-                          width: "44px",
-                          textAlign: "right",
-                          color: "#D4C8B0",
-                          userSelect: "none",
-                        }}
-                      >
-                        {lineIdx + 1}
-                      </span>
-                      {lineTokens.length === 0 ? "\u200B" : lineTokens.map((token, i) => (
-                        <span key={i} style={{ color: TOKEN_COLORS[token.type] }}>
-                          {token.value}
+                  {linesOfTokens.map((lineTokens, lineIdx) => {
+                    const hasError = errorLineSet.has(lineIdx);
+                    const lineDiags = diagnostics.filter(d => d.line === lineIdx);
+                    return (
+                      <div key={lineIdx} style={{
+                        position: "relative",
+                        minHeight: "1.65em",
+                        background: hasError ? "rgba(220, 38, 38, 0.06)" : undefined,
+                      }}>
+                        {/* Line number + error dot */}
+                        <span
+                          style={{
+                            position: "absolute",
+                            left: "-52px",
+                            width: "44px",
+                            textAlign: "right",
+                            color: hasError ? "#DC2626" : "#D4C8B0",
+                            userSelect: "none",
+                            fontWeight: hasError ? 600 : undefined,
+                          }}
+                        >
+                          {hasError && (
+                            <span style={{
+                              display: "inline-block",
+                              width: "6px",
+                              height: "6px",
+                              borderRadius: "50%",
+                              background: "#DC2626",
+                              marginRight: "3px",
+                              verticalAlign: "middle",
+                            }} />
+                          )}
+                          {lineIdx + 1}
                         </span>
-                      ))}
-                    </div>
-                  ))}
+                        {/* Render tokens with error underlines */}
+                        {lineTokens.length === 0 ? "\u200B" : (() => {
+                          // Build a flat text to map column positions
+                          let col = 0;
+                          return lineTokens.map((token, i) => {
+                            const tokenStart = col;
+                            const tokenEnd = col + token.value.length;
+                            col = tokenEnd;
+                            // Check if any diagnostic overlaps this token
+                            const overlapping = lineDiags.filter(
+                              d => d.colStart < tokenEnd && d.colEnd > tokenStart
+                            );
+                            if (overlapping.length > 0) {
+                              return (
+                                <span
+                                  key={i}
+                                  style={{
+                                    color: TOKEN_COLORS[token.type],
+                                    textDecoration: "wavy underline #DC2626",
+                                    textDecorationSkipInk: "none",
+                                    textUnderlineOffset: "2px",
+                                    backgroundColor: "rgba(220, 38, 38, 0.10)",
+                                    borderRadius: "2px",
+                                  }}
+                                >
+                                  {token.value}
+                                </span>
+                              );
+                            }
+                            return (
+                              <span key={i} style={{ color: TOKEN_COLORS[token.type] }}>
+                                {token.value}
+                              </span>
+                            );
+                          });
+                        })()}
+                      </div>
+                    );
+                  })}
                 </pre>
+
+                {/* Error hover overlay — sits between pre and textarea */}
+                <div
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    padding: "16px 0 16px 52px",
+                    fontSize: "12px",
+                    fontFamily: MONO,
+                    lineHeight: "1.65",
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                    overflowWrap: "anywhere" as any,
+                    boxSizing: "border-box" as any,
+                    pointerEvents: "none",
+                    zIndex: 1,
+                  }}
+                >
+                  {linesOfTokens.map((lineTokens, lineIdx) => {
+                    const lineDiags = diagnostics.filter(d => d.line === lineIdx);
+                    if (lineDiags.length === 0) {
+                      // Invisible line to maintain height parity
+                      return (
+                        <div key={lineIdx} style={{ minHeight: "1.65em", visibility: "hidden" }}>
+                          {lineTokens.length === 0 ? "\u200B" : lineTokens.map(t => t.value).join("")}
+                        </div>
+                      );
+                    }
+                    // Render error regions as hoverable spans
+                    let col = 0;
+                    return (
+                      <div key={lineIdx} style={{ position: "relative", minHeight: "1.65em" }}>
+                        {lineTokens.map((token, i) => {
+                          const tokenStart = col;
+                          const tokenEnd = col + token.value.length;
+                          col = tokenEnd;
+                          const overlapping = lineDiags.filter(
+                            d => d.colStart < tokenEnd && d.colEnd > tokenStart
+                          );
+                          if (overlapping.length > 0) {
+                            return (
+                              <span
+                                key={i}
+                                style={{
+                                  color: "transparent",
+                                  pointerEvents: "auto",
+                                  cursor: "pointer",
+                                  position: "relative",
+                                }}
+                                onMouseEnter={(e) => {
+                                  const rect = e.currentTarget.getBoundingClientRect();
+                                  setHoveredDiag({
+                                    diag: overlapping[0],
+                                    x: rect.left,
+                                    y: rect.bottom + 4,
+                                  });
+                                }}
+                                onMouseLeave={() => setHoveredDiag(null)}
+                              >
+                                {token.value}
+                              </span>
+                            );
+                          }
+                          return (
+                            <span key={i} style={{ color: "transparent", pointerEvents: "none" }}>
+                              {token.value}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Hover tooltip */}
+                {hoveredDiag && (
+                  <div
+                    style={{
+                      position: "fixed",
+                      left: hoveredDiag.x,
+                      top: hoveredDiag.y,
+                      zIndex: 9999,
+                      background: "#2C1F12",
+                      color: "#F5EDE3",
+                      padding: "8px 12px",
+                      borderRadius: "8px",
+                      fontSize: "11px",
+                      fontFamily: MONO,
+                      boxShadow: "0 4px 16px rgba(44,31,18,0.25)",
+                      maxWidth: "360px",
+                      lineHeight: 1.5,
+                      border: "1px solid #5C4A38",
+                    }}
+                    onMouseEnter={() => {/* keep open */}}
+                    onMouseLeave={() => setHoveredDiag(null)}
+                  >
+                    <div style={{ marginBottom: "6px" }}>{hoveredDiag.diag.message}</div>
+                    <button
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "5px",
+                        background: "linear-gradient(135deg, #C8532A, #9B3FBE)",
+                        color: "#fff",
+                        border: "none",
+                        borderRadius: "6px",
+                        padding: "4px 10px",
+                        fontSize: "10px",
+                        fontFamily: FONT,
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        opacity: 0.9,
+                        transition: "opacity 0.15s",
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
+                      onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.9")}
+                      onClick={() => {
+                        // Stub — no implementation yet
+                        toast.info("Fix with Gemini coming soon!");
+                        setHoveredDiag(null);
+                      }}
+                    >
+                      <Sparkles style={{ width: "10px", height: "10px" }} />
+                      Fix with Gemini
+                    </button>
+                  </div>
+                )}
 
                 {/* Editable textarea overlay */}
                 <textarea
@@ -1508,7 +1823,10 @@ export function EditorScreen() {
                     if (activeTabPath) {
                       setOpenTabs(tabs => tabs.map(t => t.path === activeTabPath ? { ...t, modified: true } : t));
                     }
+                    updateCursorPos();
                   }}
+                  onKeyUp={updateCursorPos}
+                  onClick={updateCursorPos}
                   onScroll={handleEditorScroll}
                   spellCheck={false}
                   autoCapitalize="off"
@@ -1518,6 +1836,7 @@ export function EditorScreen() {
                     top: 0,
                     left: 0,
                     width: "100%",
+                    zIndex: 2,
                     height: "100%",
                     padding: "16px 0 16px 52px",
                     fontSize: "12px",
@@ -1632,18 +1951,30 @@ export function EditorScreen() {
               className="shrink-0 px-3 py-1.5 flex items-center gap-3"
               style={{ borderTop: "1px solid #E4D9CC", background: "#EDE5D8" }}
             >
-              <div className="flex items-center gap-1">
-                <AlertTriangle style={{ width: "11px", height: "11px", color: "#D4800A" }} />
-                <span style={{ fontSize: "11px", fontFamily: FONT, color: "#A08870" }}>0 warnings</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <Info style={{ width: "11px", height: "11px", color: "#B5A08A" }} />
-                <span style={{ fontSize: "11px", fontFamily: FONT, color: "#A08870" }}>2 info</span>
-              </div>
+              {/* {(diagnostics.length > 0 || lastCompileError) ? (
+                <div className="flex items-center gap-1">
+                  <AlertTriangle style={{ width: "11px", height: "11px", color: "#DC2626" }} />
+                  <span style={{ fontSize: "11px", fontFamily: FONT, color: "#DC2626", fontWeight: 500 }}>
+                    {diagnostics.length + (lastCompileError ? 1 : 0)} error{(diagnostics.length + (lastCompileError ? 1 : 0)) !== 1 ? "s" : ""}
+                  </span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1">
+                  <span style={{ width: "7px", height: "7px", borderRadius: "50%", background: "#3D9A6A", display: "inline-block" }} />
+                  <span style={{ fontSize: "11px", fontFamily: FONT, color: "#3D9A6A", fontWeight: 500 }}>No errors</span>
+                </div>
+              )} */}
               <div className="flex-1" />
-              <span style={{ fontSize: "11px", fontFamily: FONT, color: "#3D9A6A", fontWeight: 500 }}>
-                ✓ Build successful — 0.84s
-              </span>
+              {!compiling && (compiled || lastCompileError) && (
+                <span style={{ 
+                  fontSize: "11px", 
+                  fontFamily: FONT, 
+                  color: compiled ? "#3D9A6A" : "#DC2626", 
+                  fontWeight: 500 
+                }}>
+                  {compiled ? "✓ Build successful" : "✗ Build failed"} — {compileTime.toFixed(2)}s
+                </span>
+              )}
             </div>
           </div>
         </div>

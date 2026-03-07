@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Toaster } from "sonner";
 import { Outlet, useNavigate, useLocation } from "react-router";
 import {
@@ -30,6 +30,23 @@ export function Root() {
   const location = useLocation();
   const [activeActivity, setActiveActivity] = useState(0);
   const [fileMenuOpen, setFileMenuOpen] = useState(false);
+  const [cursorPos, setCursorPos] = useState({ line: 1, col: 1 });
+  const [errorCount, setErrorCount] = useState(0);
+
+  useEffect(() => {
+    const handleCursorPosChange = (e: any) => {
+      setCursorPos(e.detail);
+    };
+    const handleSyntaxErrorsChange = (e: any) => {
+      setErrorCount(e.detail.count);
+    };
+    window.addEventListener('cursor-pos-change', handleCursorPosChange);
+    window.addEventListener('syntax-errors-change', handleSyntaxErrorsChange);
+    return () => {
+      window.removeEventListener('cursor-pos-change', handleCursorPosChange);
+      window.removeEventListener('syntax-errors-change', handleSyntaxErrorsChange);
+    };
+  }, []);
 
   const handleActivityClick = (index: number, path: string | null) => {
     setActiveActivity(index);
@@ -140,23 +157,30 @@ export function Root() {
         }}
       >
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5">
+          {/* <div className="flex items-center gap-1.5">
             <GitBranch style={{ width: "10px", height: "10px", color: "#C8532A" }} />
             <span style={{ color: "#C8532A", fontSize: "10px", fontFamily: FONT }}>main</span>
-          </div>
+          </div> */}
           <div className="flex items-center gap-1">
             <Circle
-              style={{ width: "5px", height: "5px", fill: "#3D9A6A", color: "#3D9A6A" }}
+              style={{ 
+                width: "5px", 
+                height: "5px", 
+                fill: errorCount > 0 ? "#DC2626" : "#3D9A6A", 
+                color: errorCount > 0 ? "#DC2626" : "#3D9A6A" 
+              }}
             />
-            <span style={{ color: "#A08870", fontSize: "10px", fontFamily: FONT }}>
-              No errors
+            <span style={{ color: errorCount > 0 ? "#DC2626" : "#A08870", fontSize: "10px", fontFamily: FONT, fontWeight: errorCount > 0 ? 600 : 400 }}>
+              {errorCount > 0 ? `error ${errorCount}` : "No errors"}
             </span>
           </div>
         </div>
         <div className="flex items-center gap-3">
           <span style={{ color: "#B5A08A", fontSize: "10px", fontFamily: FONT }}>LaTeX</span>
           <span style={{ color: "#B5A08A", fontSize: "10px", fontFamily: FONT }}>UTF-8</span>
-          <span style={{ color: "#B5A08A", fontSize: "10px", fontFamily: FONT }}>Ln 1, Col 1</span>
+          <span style={{ color: "#B5A08A", fontSize: "10px", fontFamily: FONT }}>
+            Ln {cursorPos.line}, Col {cursorPos.col}
+          </span>
           <span
             style={{
               color: "#C8532A",
