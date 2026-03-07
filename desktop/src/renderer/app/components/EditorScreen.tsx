@@ -280,7 +280,7 @@ export function EditorScreen() {
     } else {
       newExpanded.add(file.path);
       setExpandedFolders(newExpanded);
-      
+
       if (!folderContents[file.path]) {
         const res = await window.api.readDirectory(file.path);
         if (res.error) {
@@ -351,9 +351,9 @@ export function EditorScreen() {
     setNewItemName("");
     setCreateMenuOpen(null);
     if (!expandedFolders.has(targetDir)) {
-       const newExpanded = new Set(expandedFolders);
-       newExpanded.add(targetDir);
-       setExpandedFolders(newExpanded);
+      const newExpanded = new Set(expandedFolders);
+      newExpanded.add(targetDir);
+      setExpandedFolders(newExpanded);
     }
   };
 
@@ -369,34 +369,34 @@ export function EditorScreen() {
     if (!isCreatingItem.isDir && !name.includes(".")) {
       name += ".tex";
     }
-    
+
     const result = await window.api.createItem(isCreatingItem.targetDir, name, isCreatingItem.isDir);
     if (result.error) {
       toast.error("Failed to create", { description: result.error });
     } else {
       toast.success(`${isCreatingItem.isDir ? 'Folder' : 'File'} created!`);
       const newFile: FileEntry = { name, isDir: isCreatingItem.isDir, path: result.path! };
-      
+
       // Update folderContents for the targeted directory
       setFolderContents(prev => {
-         const list = prev[isCreatingItem.targetDir] || [];
-         const newList = [...list, newFile].sort((a, b) => {
-           if (a.isDir && !b.isDir) return -1;
-           if (!a.isDir && b.isDir) return 1;
-           return a.name.localeCompare(b.name);
-         });
-         return { ...prev, [isCreatingItem.targetDir]: newList };
+        const list = prev[isCreatingItem.targetDir] || [];
+        const newList = [...list, newFile].sort((a, b) => {
+          if (a.isDir && !b.isDir) return -1;
+          if (!a.isDir && b.isDir) return 1;
+          return a.name.localeCompare(b.name);
+        });
+        return { ...prev, [isCreatingItem.targetDir]: newList };
       });
-      
+
       // Also update fileTree if we added to root
       if (isCreatingItem.targetDir === currentDir) {
-         setFileTree(prev => {
-            return [...prev, newFile].sort((a, b) => {
-               if (a.isDir && !b.isDir) return -1;
-               if (!a.isDir && b.isDir) return 1;
-               return a.name.localeCompare(b.name);
-            });
-         });
+        setFileTree(prev => {
+          return [...prev, newFile].sort((a, b) => {
+            if (a.isDir && !b.isDir) return -1;
+            if (!a.isDir && b.isDir) return 1;
+            return a.name.localeCompare(b.name);
+          });
+        });
       }
     }
     setIsCreatingItem(null);
@@ -405,13 +405,13 @@ export function EditorScreen() {
 
   const handleRenameSubmit = async () => {
     if (!window.api || !renamingFile || !renameInput.trim()) {
-       setRenamingFile(null);
-       return;
+      setRenamingFile(null);
+      return;
     }
     const newName = renameInput.trim();
     if (newName === renamingFile.name) {
-       setRenamingFile(null);
-       return;
+      setRenamingFile(null);
+      return;
     }
 
     const result = await window.api.renameItem(renamingFile.path, newName);
@@ -421,21 +421,21 @@ export function EditorScreen() {
       toast.success("Renamed successfully");
       // Fast refresh for root - a full tree re-read would be cleaner but this works
       if (currentDir) {
-         queueMicrotask(() => handleOpenFolder()); // Lazy refresh, can optimize later
+        queueMicrotask(() => handleOpenFolder()); // Lazy refresh, can optimize later
       }
     }
     setRenamingFile(null);
   };
 
   const handleDeleteItem = async (file: FileEntry) => {
-     if (!window.api) return;
-     const result = await window.api.deleteItem(file.path);
-     if (result.error) {
-        toast.error("Failed to delete", { description: result.error });
-     } else {
-        toast.success("Moved to trash");
-        if (currentDir) queueMicrotask(() => handleOpenFolder()); // Lazy refresh
-     }
+    if (!window.api) return;
+    const result = await window.api.deleteItem(file.path);
+    if (result.error) {
+      toast.error("Failed to delete", { description: result.error });
+    } else {
+      toast.success("Moved to trash");
+      if (currentDir) queueMicrotask(() => handleOpenFolder()); // Lazy refresh
+    }
   };
 
   const lines = code.split("\n");
@@ -446,7 +446,7 @@ export function EditorScreen() {
       toast.error("No file selected", { description: "Please open a .tex file to compile." });
       return;
     }
-    
+
     // Auto-save the file if it's modified since node-latex compiles from the physical file
     const tabState = openTabs.find(t => t.path === activeTabPath);
     if (tabState?.modified) {
@@ -699,7 +699,7 @@ export function EditorScreen() {
                                           <FileText style={{ width: "12px", height: "12px", color: "#C8BEB0" }} />
                                         </div>
                                       )}
-                                      
+
                                       {renamingFile?.path === file.path ? (
                                         <input
                                           autoFocus
@@ -729,7 +729,7 @@ export function EditorScreen() {
                                         </span>
                                       )}
                                     </div>
-                                    
+
                                     {file.isDir && (
                                       <div className="relative opacity-0 group-hover:opacity-100 transition-opacity flex items-center shrink-0">
                                         <button
@@ -749,7 +749,7 @@ export function EditorScreen() {
                                       </div>
                                     )}
                                   </div>
-                                  
+
                                   {/* Inline create input if creating in this dir */}
                                   {isTargetDir && (
                                     <div
@@ -791,7 +791,7 @@ export function EditorScreen() {
                               );
                             });
                           };
-                          
+
                           return renderFileTree(fileTree, 0);
                         })()}
                       </>
@@ -812,21 +812,21 @@ export function EditorScreen() {
                     }}
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <button 
+                    <button
                       className="w-full text-left px-3 py-1.5 hover:bg-black/5 flex items-center gap-2 transition-colors"
                       onMouseDown={(e) => {
-                         e.preventDefault();
-                         handleCreateItemInit(false, createMenuOpen.path);
+                        e.preventDefault();
+                        handleCreateItemInit(false, createMenuOpen.path);
                       }}
                     >
                       <FileText style={{ width: "12px", height: "12px", color: "#C8BEB0" }} />
                       <span style={{ fontSize: "11px", color: "#7A6858", fontFamily: FONT }}>New File</span>
                     </button>
-                    <button 
+                    <button
                       className="w-full text-left px-3 py-1.5 hover:bg-black/5 flex items-center gap-2 transition-colors"
                       onMouseDown={(e) => {
-                         e.preventDefault();
-                         handleCreateItemInit(true, createMenuOpen.path);
+                        e.preventDefault();
+                        handleCreateItemInit(true, createMenuOpen.path);
                       }}
                     >
                       <FolderOpen style={{ width: "12px", height: "12px", color: "#C8532A" }} />
@@ -959,61 +959,7 @@ export function EditorScreen() {
                 )}
               </div>
 
-              {/* RECORD section */}
-              <div className="px-3 py-2">
-                <div className="flex items-center gap-1 px-1 mb-2">
-                  <span
-                    style={{
-                      color: "#A08870",
-                      fontSize: "10px",
-                      fontFamily: FONT,
-                      letterSpacing: "0.08em",
-                      textTransform: "uppercase",
-                      fontWeight: 600,
-                    }}
-                  >
-                    Record
-                  </span>
-                </div>
-                <div
-                  className="rounded-2xl flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all hover:bg-black/5"
-                  style={{
-                    height: "72px",
-                    background: "#FDFAF6",
-                    border: "1.5px solid #DED3C4",
-                    transition: "all 0.2s ease",
-                  }}
-                >
-                  <div
-                    className="rounded-xl flex items-center justify-center"
-                    style={{
-                      width: "28px",
-                      height: "28px",
-                      background: "#F5EDE3",
-                      border: "1px solid #E4D9CC",
-                      transition: "all 0.2s ease",
-                    }}
-                  >
-                    <Mic
-                      style={{
-                        width: "13px",
-                        height: "13px",
-                        color: "#C8BEB0",
-                      }}
-                    />
-                  </div>
-                  <span
-                    style={{
-                      fontSize: "10px",
-                      fontFamily: FONT,
-                      color: "#B5A08A",
-                      fontWeight: 400,
-                    }}
-                  >
-                    Click to speak LaTeX
-                  </span>
-                </div>
-              </div>
+
 
 
             </div>
