@@ -1,5 +1,6 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import * as path from 'path';
+import * as fs from 'fs';
 import { spawn, ChildProcess } from 'child_process';
 const latex = require('node-latex');
 
@@ -59,6 +60,65 @@ app.whenReady().then(() => {
                 resolve({ error: err.message || String(err) });
             }
         });
+    });
+
+    ipcMain.handle('open-directory', async () => {
+        if (!mainWindow) return { error: 'No main window' };
+        const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+            properties: ['openDirectory'],
+            title: 'Open Project Folder'
+        });
+        
+        if (canceled || filePaths.length === 0) return { canceled: true };
+        
+        const dirPath = filePaths[0];
+        try {
+            const items = fs.readdirSync(dirPath, { withFileTypes: true });
+            const files = items.map(item => ({
+                name: item.name,
+                isDir: item.isDirectory(),
+                path: path.join(dirPath, item.name)
+            })).sort((a, b) => {
+                if (a.isDir && !b.isDir) return -1;
+                if (!a.isDir && b.isDir) return 1;
+                return a.name.localeCompare(b.name);
+            });
+            return { canceled: false, path: dirPath, files };
+        } catch (err: any) {
+            return { error: err.message };
+        }
+    });
+
+    ipcMain.handle('read-file', async (event, filePath) => {
+        try {
+            const content = fs.readFileSync(filePath, 'utf-8');
+            return { content };
+        } catch (err: any) {
+            return { error: err.message };
+        }
+    });
+
+    ipcMain.handle('save-file', async (event, filePath, content) => {
+        try {
+            fs.writeFileSync(filePath, content, 'utf-8');
+            return { success: true };
+        } catch (err: any) {
+            return { error: err.message };
+        }
+    });
+
+    ipcMain.handle('create-item', async (event, dirPath, name, isDir) => {
+        try {
+            const fullPath = path.join(dirPath, name);
+            if (isDir) {
+                fs.mkdirSync(fullPath);
+            } else {
+                fs.writeFileSync(fullPath, '', 'utf-8');
+            }
+            return { success: true, path: fullPath };
+        } catch (err: any) {
+            return { error: err.message };
+        }
     });
 
     app.on('activate', () => {

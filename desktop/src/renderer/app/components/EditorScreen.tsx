@@ -5,6 +5,10 @@ declare global {
   interface Window {
     api: {
       compileDocument: (config: { code: string }) => Promise<{ data?: string; error?: string }>;
+      openDirectory: () => Promise<{ canceled: boolean; path?: string; files?: any[]; error?: string }>;
+      readFile: (filePath: string) => Promise<{ content?: string; error?: string }>;
+      saveFile: (filePath: string, content: string) => Promise<{ success?: boolean; error?: string }>;
+      createItem: (dirPath: string, name: string, isDir: boolean) => Promise<{ success?: boolean; path?: string; error?: string }>;
     };
   }
 }
@@ -143,20 +147,9 @@ function tokenizeLatex(code: string): Token[] {
 /* ─────────── File tree data ─────────── */
 type FileEntry = {
   name: string;
-  active?: boolean;
-  modified?: boolean;
-  isDir?: boolean;
+  isDir: boolean;
+  path: string;
 };
-
-const fileTree: FileEntry[] = [
-  { name: "thesis_main.tex", active: true, modified: true },
-  { name: "chapter_01.tex", active: false, modified: false },
-  { name: "chapter_02.tex", active: false, modified: false },
-  { name: "chapter_03.tex", active: false, modified: true },
-  { name: "bibliography.bib", active: false, modified: true },
-  { name: "figures/", isDir: true },
-  { name: "appendix.tex", active: false, modified: false },
-];
 
 /* ─────────── Assets data ─────────── */
 const assetFiles: { name: string; type: string }[] = [
@@ -180,7 +173,15 @@ const recentCommits = [
 ];
 
 export function EditorScreen() {
-  const [code, setCode] = useState(SAMPLE_LATEX);
+  const [currentDir, setCurrentDir] = useState<string | null>(null);
+  const [fileTree, setFileTree] = useState<FileEntry[]>([]);
+  const [openTabs, setOpenTabs] = useState<{name: string, path: string, modified: boolean}[]>([]);
+  const [activeTabPath, setActiveTabPath] = useState<string | null>(null);
+  const [createMenuOpen, setCreateMenuOpen] = useState(false);
+  const [isCreatingItem, setIsCreatingItem] = useState<{ isDir: boolean } | null>(null);
+  const [newItemName, setNewItemName] = useState("");
+
+  const [code, setCode] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const editorContainerRef = useRef<HTMLDivElement>(null);
   const lineNumbersRef = useRef<HTMLDivElement>(null);
@@ -200,7 +201,8 @@ export function EditorScreen() {
       lineNums.scrollTop = ta.scrollTop;
     }
   }, []);
-  const [activeTab, setActiveTab] = useState("thesis_main.tex");
+  const [pdfData, setPdfData] = useState<string | null>(null);
+
   const [zoom, setZoom] = useState(100);
   const [compiling, setCompiling] = useState(false);
   const [compiled, setCompiled] = useState(true);
@@ -209,13 +211,106 @@ export function EditorScreen() {
   const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [pdfData, setPdfData] = useState<string | null>(null);
+  const handleOpenFolder = async () => {
+    if (!window.api) return;
+    const result = await window.api.openDirectory();
+    if (result.canceled) return;
+    if (result.error) {
+      toast.error("Failed to open folder", { description: result.error });
+      return;
+    }
+    if (result.path && result.files) {
+      setCurrentDir(result.path);
+      setFileTree(result.files);
+      setOpenTabs([]);
+      setActiveTabPath(null);
+      setCode("");
+    }
+  };
 
-  const openTabs = [
-    { name: "thesis_main.tex", modified: true },
-    { name: "chapter_03.tex", modified: false },
-    { name: "bibliography.bib", modified: false },
-  ];
+  const handleOpenFile = async (file: FileEntry) => {
+    if (file.isDir) return;
+    if (!window.api) return;
+
+    if (!openTabs.find(t => t.path === file.path)) {
+      setOpenTabs([...openTabs, { name: file.name, path: file.path, modified: false }]);
+    }
+    
+    setActiveTabPath(file.path);
+    
+    const result = await window.api.readFile(file.path);
+    if (result.error) {
+      toast.error("Failed to read file", { description: result.error });
+    } else if (result.content !== undefined) {
+      setCode(result.content);
+      setOpenTabs(tabs => tabs.map(t => t.path === file.path ? { ...t, modified: false } : t));
+    }
+  };
+
+  const handleSaveFile = useCallback(async () => {
+    if (!activeTabPath || !window.api) return;
+    
+    const result = await window.api.saveFile(activeTabPath, code);
+    if (result.error) {
+      toast.error("Failed to save file", { description: result.error });
+      return;
+    }
+    toast.success("File saved!");
+    setOpenTabs(tabs => tabs.map(t => t.path === activeTabPath ? { ...t, modified: false } : t));
+  }, [activeTabPath, code]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        handleSaveFile();
+      }
+    };
+    const handleMenuClick = () => handleOpenFolder();
+    
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('open-folder-menu-click', handleMenuClick);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('open-folder-menu-click', handleMenuClick);
+    };
+  }, [handleSaveFile]);
+
+  const handleCreateItemInit = (isDir: boolean) => {
+    setIsCreatingItem({ isDir });
+    setNewItemName("");
+    setCreateMenuOpen(false);
+  };
+
+  const handleCreateItemSubmit = async () => {
+    if (!currentDir || !window.api || !isCreatingItem) return;
+    
+    let name = newItemName.trim();
+    if (!name) {
+      setIsCreatingItem(null);
+      return;
+    }
+
+    // Auto-append .tex for files if no extension is provided
+    if (!isCreatingItem.isDir && !name.includes(".")) {
+      name += ".tex";
+    }
+    
+    const result = await window.api.createItem(currentDir, name, isCreatingItem.isDir);
+    if (result.error) {
+      toast.error("Failed to create", { description: result.error });
+    } else {
+      toast.success(`${isCreatingItem.isDir ? 'Folder' : 'File'} created!`);
+      const newFile: FileEntry = { name, isDir: isCreatingItem.isDir, path: result.path! };
+      setFileTree([...fileTree, newFile].sort((a, b) => {
+        if (a.isDir && !b.isDir) return -1;
+        if (!a.isDir && b.isDir) return 1;
+        return a.name.localeCompare(b.name);
+      }));
+    }
+    setIsCreatingItem(null);
+    setNewItemName("");
+  };
 
   const lines = code.split("\n");
   const tokens = tokenizeLatex(code);
@@ -306,9 +401,6 @@ export function EditorScreen() {
               );
             })}
           </div>
-          <button className="hover:bg-black/5 rounded-lg p-0.5 transition-colors" style={{ color: "#A08870" }}>
-            <Plus style={{ width: "12px", height: "12px" }} />
-          </button>
         </div>
 
         {/* Sidebar content area */}
@@ -317,50 +409,150 @@ export function EditorScreen() {
           {sidebarTab === "files" && (
             <div className="flex flex-col h-full">
               {/* File tree */}
-              <div className="py-2 px-2 flex-1">
-                <div className="flex items-center gap-1 px-2 mb-1">
-                  <ChevronDown style={{ width: "10px", height: "10px", color: "#C8532A" }} />
-                  <span
-                    style={{
-                      color: "#C8532A",
-                      fontSize: "10px",
-                      fontFamily: FONT,
-                      letterSpacing: "0.08em",
-                      textTransform: "uppercase",
-                      fontWeight: 600,
-                    }}
-                  >
-                    Thesis Project
-                  </span>
-                </div>
-                {fileTree.map((file) => (
-                  <button
-                    key={file.name}
-                    className="w-full flex items-center gap-2 px-2 py-1 rounded-xl transition-all text-left"
-                    style={{
-                      background: file.active ? "#FAE5D8" : "transparent",
-                      border: file.active ? "1px solid #F0C9B4" : "1px solid transparent",
-                    }}
-                  >
-                    {file.isDir ? (
-                      <FolderOpen style={{ width: "12px", height: "12px", color: "#C8532A", flexShrink: 0 }} />
+              <div className="py-2 px-2 flex-1 relative">
+                {!currentDir ? (
+                  <div className="flex flex-col items-center justify-center p-4 gap-3 h-full text-center">
+                    <button onClick={handleOpenFolder} className="px-4 py-2 rounded-xl transition-colors font-medium text-xs shadow-sm hover:opacity-90 active:scale-95" style={{ background: "#C8532A", color: "#FFF" }}>
+                      Open Folder
+                    </button>
+                    <span style={{ fontSize: "10px", color: "#A08870", fontFamily: FONT }}>No folder opened.</span>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between px-2 mb-1">
+                      <div className="flex items-center gap-1 cursor-pointer transition-opacity hover:opacity-70" onClick={handleOpenFolder} title="Click to open a different folder">
+                        <FolderOpen style={{ width: "10px", height: "10px", color: "#C8532A" }} />
+                        <span
+                          style={{
+                            color: "#C8532A",
+                            fontSize: "10px",
+                            fontFamily: FONT,
+                            letterSpacing: "0.08em",
+                            textTransform: "uppercase",
+                            fontWeight: 600,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {currentDir?.split(/[/\\]/).pop() || "Project"}
+                        </span>
+                      </div>
+                      <div className="relative">
+                        <button
+                          onClick={() => setCreateMenuOpen(!createMenuOpen)}
+                          onBlur={() => setTimeout(() => setCreateMenuOpen(false), 150)}
+                          className="hover:bg-bg-black/5 rounded-md p-0.5 transition-colors"
+                          style={{ color: "#A08870" }}
+                        >
+                          <Plus style={{ width: "12px", height: "12px" }} />
+                        </button>
+                        {createMenuOpen && (
+                          <div className="absolute top-full right-0 mt-1 w-32 rounded-lg shadow-lg py-1 z-50 overflow-hidden" style={{ background: "#FDFBF7", border: "1px solid #EAE0D5" }}>
+                            <button 
+                              className="w-full text-left px-3 py-1.5 hover:bg-black/5 flex items-center gap-2 transition-colors"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                handleCreateItemInit(false);
+                              }}
+                            >
+                              <FileText style={{ width: "12px", height: "12px", color: "#C8BEB0" }} />
+                              <span style={{ fontSize: "11px", color: "#7A6858", fontFamily: FONT }}>New File</span>
+                            </button>
+                            <button 
+                              className="w-full text-left px-3 py-1.5 hover:bg-black/5 flex items-center gap-2 transition-colors"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                handleCreateItemInit(true);
+                              }}
+                            >
+                              <FolderOpen style={{ width: "12px", height: "12px", color: "#C8532A" }} />
+                              <span style={{ fontSize: "11px", color: "#7A6858", fontFamily: FONT }}>New Folder</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    {fileTree.length === 0 && !isCreatingItem ? (
+                      <div className="text-center py-4 opacity-60">
+                         <span style={{ fontSize: "10px", color: "#A08870", fontFamily: FONT }}>Folder is empty</span>
+                      </div>
                     ) : (
-                      <FileText style={{ width: "12px", height: "12px", color: "#C8BEB0", flexShrink: 0 }} />
-                    )}
-                    <span
-                      style={{
-                        fontSize: "12px",
-                        fontFamily: FONT,
-                        color: file.active ? "#C8532A" : file.modified ? "#D4800A" : "#7A6858",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {file.name}
-                    </span>
-                  </button>
-                ))}
+                      <>
+                        {isCreatingItem && (
+                          <div
+                            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-xl mt-0.5"
+                            style={{ background: "#FAE5D8", border: "1px solid #F0C9B4" }}
+                          >
+                            {isCreatingItem.isDir ? (
+                              <FolderOpen style={{ width: "12px", height: "12px", color: "#C8532A", flexShrink: 0 }} />
+                            ) : (
+                              <FileText style={{ width: "12px", height: "12px", color: "#C8BEB0", flexShrink: 0 }} />
+                            )}
+                            <input
+                              autoFocus
+                              value={newItemName}
+                              onChange={(e) => setNewItemName(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  handleCreateItemSubmit();
+                                } else if (e.key === "Escape") {
+                                  setIsCreatingItem(null);
+                                  setNewItemName("");
+                                }
+                              }}
+                              onBlur={() => {
+                                // Delay slightly to allow button clicks (like save) to fire if we ever add them
+                                setTimeout(handleCreateItemSubmit, 100);
+                              }}
+                              className="bg-transparent border-none outline-none w-full"
+                              style={{
+                                fontSize: "12px",
+                                fontFamily: FONT,
+                                color: "#C8532A",
+                              }}
+                              placeholder={isCreatingItem.isDir ? "Folder name..." : "file.tex"}
+                            />
+                          </div>
+                        )}
+                        {fileTree.map((file) => {
+                        const isActive = activeTabPath === file.path;
+                        const isModified = openTabs.find(t => t.path === file.path)?.modified;
+                        return (
+                          <button
+                            key={file.path}
+                            onClick={() => handleOpenFile(file)}
+                            title={file.path}
+                            className="w-full flex items-center gap-2 px-2 py-1 rounded-xl transition-all text-left mt-0.5"
+                            style={{
+                              background: isActive ? "#FAE5D8" : "transparent",
+                              border: isActive ? "1px solid #F0C9B4" : "1px solid transparent",
+                            }}
+                          >
+                            {file.isDir ? (
+                              <FolderOpen style={{ width: "12px", height: "12px", color: "#C8532A", flexShrink: 0 }} />
+                            ) : (
+                              <FileText style={{ width: "12px", height: "12px", color: "#C8BEB0", flexShrink: 0 }} />
+                            )}
+                            <span
+                              style={{
+                                fontSize: "12px",
+                                fontFamily: FONT,
+                                color: isActive ? "#C8532A" : isModified ? "#D4800A" : "#7A6858",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {file.name}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </>
+                  )}
+                  </>
+                )}
               </div>
 
               {/* Upload Image — Overleaf-style drop zone */}
@@ -661,13 +853,16 @@ export function EditorScreen() {
         >
           {openTabs.map((tab) => (
             <button
-              key={tab.name}
-              onClick={() => setActiveTab(tab.name)}
-              className="flex items-center gap-2 px-4 shrink-0 relative group"
+              key={tab.path}
+              onClick={() => {
+                setActiveTabPath(tab.path);
+                window.api?.readFile(tab.path).then(res => { if (res.content !== undefined) setCode(res.content) });
+              }}
+              className="flex items-center gap-2 px-4 shrink-0 relative group outline-none"
               style={{
-                background: activeTab === tab.name ? "#F9F3EC" : "transparent",
+                background: activeTabPath === tab.path ? "#F9F3EC" : "transparent",
                 borderRight: "1px solid #E4D9CC",
-                borderTop: activeTab === tab.name ? "2px solid #C8532A" : "2px solid transparent",
+                borderTop: activeTabPath === tab.path ? "2px solid #C8532A" : "2px solid transparent",
               }}
             >
               <FileText
@@ -681,7 +876,7 @@ export function EditorScreen() {
                 style={{
                   fontSize: "12px",
                   fontFamily: MONO,
-                  color: activeTab === tab.name ? "#2C1F12" : "#A08870",
+                  color: activeTabPath === tab.path ? "#2C1F12" : "#A08870",
                 }}
               >
                 {tab.name}
@@ -692,8 +887,17 @@ export function EditorScreen() {
                 />
               )}
               <X
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setOpenTabs(tabs => tabs.filter(t => t.path !== tab.path));
+                  if (activeTabPath === tab.path) {
+                    setActiveTabPath(null);
+                    setCode("");
+                  }
+                }}
                 style={{ width: "10px", height: "10px", color: "#C8BEB0" }}
                 className="group-hover:text-red-400 transition-colors"
+                role="button"
               />
             </button>
           ))}
@@ -789,10 +993,15 @@ export function EditorScreen() {
               </pre>
 
               {/* Editable textarea overlay */}
-              <textarea
-                ref={textareaRef}
-                value={code}
-                onChange={(e) => setCode(e.target.value)}
+                <textarea
+                  ref={textareaRef}
+                  value={code}
+                  onChange={(e) => {
+                    setCode(e.target.value);
+                    if (activeTabPath) {
+                      setOpenTabs(tabs => tabs.map(t => t.path === activeTabPath ? { ...t, modified: true } : t));
+                    }
+                  }}
                 onScroll={handleEditorScroll}
                 spellCheck={false}
                 autoCapitalize="off"
@@ -883,84 +1092,29 @@ export function EditorScreen() {
             </div>
 
             {/* Preview content */}
-            <div className="flex-1 overflow-auto p-5 flex justify-center">
-              <div
-                className="shadow-md rounded-sm overflow-hidden"
-                style={{
-                  width: `${zoom}%`,
-                  maxWidth: "560px",
-                  minWidth: "260px",
-                  background: "#FEFCFA",
-                  padding: "44px 48px",
-                  color: "#1a1a1a",
-                  border: "1px solid #E8E0D4",
-                }}
-              >
-                {/* Mock PDF */}
-                <div className="text-center mb-5">
-                  <h2
-                    style={{
-                      fontFamily: "'Playfair Display', Georgia, serif",
-                      fontSize: "14px",
-                      color: "#1a1a1a",
-                      lineHeight: 1.4,
-                      marginBottom: "8px",
-                    }}
-                  >
-                    On the Convergence of Gradient Descent in Non-Convex Optimization
-                  </h2>
-                  <p style={{ fontSize: "11px", color: "#4a4a4a", marginBottom: "2px" }}>Author Name</p>
-                  <p style={{ fontSize: "10px", color: "#6a6a6a" }}>Department of Computer Science · University of Excellence</p>
-                  <p style={{ fontSize: "10px", color: "#6a6a6a", marginTop: "3px" }}>March 7, 2026</p>
-                </div>
-
-                <div style={{ borderTop: "0.5px solid #ccc", paddingTop: "10px", marginBottom: "10px" }}>
-                  <p style={{ fontFamily: "Georgia, serif", fontSize: "10px", color: "#1a1a1a", marginBottom: "4px", fontVariant: "small-caps" }}>Abstract</p>
-                  <p style={{ fontSize: "9.5px", color: "#3a3a3a", lineHeight: "1.55", textAlign: "justify" }}>
-                    We present a comprehensive analysis of gradient descent convergence in non-convex
-                    optimization landscapes. Our approach leverages recent advances in stochastic methods
-                    to establish novel convergence bounds.
+            <div className="flex-1 overflow-auto p-5 flex justify-center items-center">
+              {pdfData ? (
+                <iframe
+                  src={pdfData}
+                  className="shadow-md rounded-sm bg-white"
+                  style={{
+                    width: `${zoom}%`,
+                    height: "100%",
+                    border: "1px solid #E8E0D4",
+                  }}
+                  title="PDF Preview"
+                />
+              ) : (
+                <div className="flex flex-col items-center justify-center text-center opacity-60">
+                  <FileText style={{ width: "48px", height: "48px", color: "#A08870", marginBottom: "16px" }} />
+                  <p style={{ color: "#7A6858", fontSize: "14px", fontFamily: FONT, fontWeight: 500 }}>
+                    PDF not compiled
+                  </p>
+                  <p style={{ color: "#A08870", fontSize: "12px", fontFamily: FONT, marginTop: "8px" }}>
+                    Click "Compile" to generate the preview.
                   </p>
                 </div>
-
-                <div style={{ borderTop: "0.5px solid #ccc", paddingTop: "9px" }}>
-                  <p style={{ fontFamily: "Georgia, serif", fontSize: "11px", marginBottom: "5px", color: "#1a1a1a", fontWeight: 600 }}>
-                    1. Introduction
-                  </p>
-                  <p style={{ fontSize: "9.5px", color: "#3a3a3a", lineHeight: "1.6", textAlign: "justify" }}>
-                    Consider the optimization problem:
-                  </p>
-                  <div className="my-2.5 text-center" style={{ fontSize: "11px", fontFamily: "Georgia, serif", color: "#1a1a1a" }}>
-                    min<sub>x∈ℝⁿ</sub> f(x) &nbsp;&nbsp;&nbsp; (1)
-                  </div>
-                  <p style={{ fontSize: "9.5px", color: "#3a3a3a", lineHeight: "1.6", textAlign: "justify" }}>
-                    where f: ℝⁿ → ℝ is a smooth but potentially non-convex function. The gradient
-                    descent update rule is defined as:
-                  </p>
-                  <div className="my-2.5 text-center" style={{ fontSize: "11px", fontFamily: "Georgia, serif", color: "#1a1a1a" }}>
-                    x<sub>t+1</sub> = x<sub>t</sub> − η<sub>t</sub>∇f(x<sub>t</sub>) &nbsp;&nbsp;&nbsp; (2)
-                  </div>
-                </div>
-
-                <div style={{ borderTop: "0.5px solid #ccc", paddingTop: "9px" }}>
-                  <p style={{ fontFamily: "Georgia, serif", fontSize: "11px", marginBottom: "5px", color: "#1a1a1a", fontWeight: 600 }}>
-                    2. Main Results
-                  </p>
-                  <div
-                    className="p-3 rounded-sm"
-                    style={{ background: "#F5F0E8", border: "0.5px solid #DDD5C0" }}
-                  >
-                    <p style={{ fontSize: "9.5px", color: "#1a1a1a", fontStyle: "italic", lineHeight: 1.5 }}>
-                      <strong>Theorem 1</strong> (Convergence Rate). Let f satisfy the L-smoothness
-                      condition. Under step size η = 1/L, gradient descent satisfies...
-                    </p>
-                  </div>
-                </div>
-
-                <div className="text-center mt-7">
-                  <span style={{ fontSize: "10px", color: "#9a9a9a" }}>1</span>
-                </div>
-              </div>
+              )}
             </div>
 
             {/* Diagnostics */}

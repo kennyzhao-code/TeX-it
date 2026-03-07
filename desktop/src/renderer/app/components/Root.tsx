@@ -32,7 +32,7 @@ export function Root() {
   const navigate = useNavigate();
   const location = useLocation();
   const [activeActivity, setActiveActivity] = useState(0);
-  const [speechMode, setSpeechMode] = useState<"text" | "image">("text");
+  const [fileMenuOpen, setFileMenuOpen] = useState(false);
 
   const handleActivityClick = (index: number, path: string | null) => {
     setActiveActivity(index);
@@ -66,15 +66,45 @@ export function Root() {
           borderBottom: "1px solid #EAE0D5",
         }}
       >
-        {["File", "Edit", "View", "Build", "Tools", "Window"].map((item) => (
-          <button
-            key={item}
-            className="px-2.5 rounded-md flex items-center gap-1 transition-colors hover:bg-black/5"
-            style={{ height: "22px", color: "#7A6858", fontSize: "12px", fontFamily: FONT }}
-          >
-            {item}
-          </button>
-        ))}
+        {["File", "Edit", "View", "Build", "Tools", "Window"].map((item) => {
+          if (item === "File") {
+            return (
+              <div key={item} className="relative">
+                <button
+                  onClick={() => setFileMenuOpen(!fileMenuOpen)}
+                  onBlur={() => setTimeout(() => setFileMenuOpen(false), 150)}
+                  className="px-2.5 rounded-md flex items-center gap-1 transition-colors hover:bg-black/5"
+                  style={{ height: "22px", color: "#7A6858", fontSize: "12px", fontFamily: FONT }}
+                >
+                  {item}
+                </button>
+                {fileMenuOpen && (
+                  <div className="absolute top-full left-0 mt-1 w-48 rounded-lg shadow-lg py-1 z-50 overflow-hidden" style={{ background: "#FDFBF7", border: "1px solid #EAE0D5" }}>
+                    <button 
+                      className="w-full text-left px-3 py-1.5 hover:bg-black/5 text-xs text-[#7A6858] transition-colors"
+                      onMouseDown={(e) => {
+                        e.preventDefault(); // prevent blur
+                        setFileMenuOpen(false);
+                        window.dispatchEvent(new CustomEvent('open-folder-menu-click'));
+                      }}
+                    >
+                      Open Folder...
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          }
+          return (
+            <button
+              key={item}
+              className="px-2.5 rounded-md flex items-center gap-1 transition-colors hover:bg-black/5"
+              style={{ height: "22px", color: "#7A6858", fontSize: "12px", fontFamily: FONT }}
+            >
+              {item}
+            </button>
+          );
+        })}
         {/* Help button */}
         <button
           className="px-2.5 rounded-md flex items-center gap-1.5 transition-colors hover:bg-black/5"
